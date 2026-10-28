@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createGame, launch, movePaddle, type BrickGame } from "./brick.ts";
+import { cloneGame, createGame, launch, movePaddle, setSteer, type BrickGame } from "./brick.ts";
 import { playClick, unlockClick } from "./click.ts";
 import {
   BACKLIGHTS,
@@ -57,8 +57,6 @@ function scrollListToRow(list: HTMLElement, row: HTMLElement) {
 const SELECT_HOLD_MS = 5000;
 const MENU_HOLD_MS = 1000;
 const HOLD_SEEK_TIERS = [5, 5, 5, 10, 10, 10, 20] as const;
-const STEER_TICK_MS = 16;
-const STEER_STEP_DEGREES = 0.035 * 360;
 const BOOT_MIN_MS = 2000;
 const BOOT_MAX_MS = 10000;
 
@@ -236,7 +234,6 @@ export default function Ipod() {
   const volumeScroller = useRef(createVolumeScroller());
   const reduceMotion = useRef(false);
   const lightTimer = useRef<number | undefined>(undefined);
-  const steerTimer = useRef<number | undefined>(undefined);
   const holdSeekRef = useRef<{ base?: number; track?: number; tier: number }>({ tier: 0 });
   const volumeClickLatch = useRef(false);
   const volumeClickStep = useRef<1 | -1 | null>(null);
@@ -274,8 +271,6 @@ export default function Ipod() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-
-  useEffect(() => () => window.clearInterval(steerTimer.current), []);
 
   useEffect(() => {
     const onOnline = () => setOnline(true);
@@ -505,12 +500,7 @@ export default function Ipod() {
         notify();
         if (overlayRef.current) return;
         if (currentFrame()?.id !== "brick") return;
-        window.clearInterval(steerTimer.current);
-        steerTimer.current = undefined;
-        if (step === null) return;
-        steerTimer.current = window.setInterval(() => {
-          gameRef.current = movePaddle(gameRef.current, step * STEER_STEP_DEGREES);
-        }, STEER_TICK_MS);
+        gameRef.current = setSteer(gameRef.current, step ?? 0);
       },
       keyStep(step, heldMs) {
         notify();
@@ -899,7 +889,7 @@ export default function Ipod() {
       const playing = playingRowIndex(draft);
       index = playing >= 0 ? playing : restoredIndex(draft);
     }
-    const leavingGame = leaving?.id === "brick" ? gameRef.current : null;
+    const leavingGame = leaving?.id === "brick" ? cloneGame(gameRef.current) : null;
     if (id === "brick") {
       gameRef.current = createGame();
       setHud(EMPTY_HUD);
@@ -917,7 +907,7 @@ export default function Ipod() {
     const leaving = current[current.length - 1];
     rememberFrame(leaving);
     if (leaving.id === "now-playing") nowPlaying.exit();
-    const leavingGame = leaving.id === "brick" ? gameRef.current : null;
+    const leavingGame = leaving.id === "brick" ? cloneGame(gameRef.current) : null;
     const next = current.slice(0, -1);
     const restored = next[next.length - 1];
     if (restored) {
