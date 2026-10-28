@@ -19,9 +19,12 @@ export function formatPercent(value: number) {
 
 export function formatClock(value: number) {
   const total = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
-  const minutes = Math.floor(total / 60);
   const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const secondText = String(seconds).padStart(2, "0");
+  if (total < 3600) return `${Math.floor(total / 60)}:${secondText}`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${secondText}`;
 }
 
 export function formatRemaining(displayTime: number, duration: number) {
