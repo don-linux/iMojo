@@ -78,16 +78,6 @@ function waitForSdk() {
   return Promise.race([loadSdk(), timeout]).finally(() => window.clearTimeout(timer));
 }
 
-function resetSpotifySdk() {
-  document.querySelectorAll?.('iframe[src^="https://sdk.scdn.co/"]')?.forEach((frame) => {
-    frame.remove();
-  });
-  document.querySelector("script[data-spotify-sdk]")?.remove();
-  const sdkWindow = window as Window & { Spotify?: SpotifySdk };
-  delete sdkWindow.Spotify;
-  delete sdkWindow.onSpotifyWebPlaybackSDKReady;
-}
-
 function loadSdk() {
   if (window.Spotify) return Promise.resolve();
   return new Promise<void>((resolve) => {
@@ -127,7 +117,13 @@ export class SpotifySdkEngine implements PlaybackEngine {
   private connectTimer = 0;
   private sdkMessage: string | null = null;
   private sdkToken = "";
-  private sdkTokenHanded = false;
+  private handedToken = "";
+  private tokenQueue: Promise<void> = Promise.resolve();
+  private tokenGeneration = 0;
+  private authRetry: "idle" | "armed" | "live" = "idle";
+  private needsFreshToken = false;
+  private playerInitFailed = false;
+  private initError = "";
   private wantsActivation = false;
   private destroyed = false;
   private deviceId = "";
@@ -172,7 +168,8 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   private createPlayer() {
-    if (this.player || this.destroyed) return this.player;
+    if (this.playerInitFailed || this.destroyed) return this.player;
+    if (this.player) return this.player;
     const sdk = window.Spotify;
     if (!sdk) return null;
     const player = new sdk.Player({
@@ -182,7 +179,7 @@ export class SpotifySdkEngine implements PlaybackEngine {
     });
     this.player = player;
     player.addListener("ready", ({ device_id }) => {
-      if (this.player !== player) return;
+      if (this.player !== player || this.playerInitFailed) return;
       this.deviceId = device_id;
       this.finishConnect();
     });
@@ -196,13 +193,28 @@ export class SpotifySdkEngine implements PlaybackEngine {
     });
     player.addListener("initialization_error", ({ message }) => {
       if (this.player !== player) return;
-      this.rejectConnect(message || "Failed to initialize player");
+      // The SDK emits this when EME cannot build a player. Reloading the
+      // script destroys the encrypted-media iframe and cannot recover it.
+      const text = message || "Failed to initialize player";
+      this.playerInitFailed = true;
+      this.initError = text;
+      this.rejectConnect(text);
     });
     player.addListener("authentication_error", ({ message }) => {
       if (this.player !== player) return;
       const text = message || "Authentication failed";
       // A scope warning can arrive before `ready`. Keep waiting for the device.
       if (this.settleConnect && isScopeWarning(text)) {
+        this.sdkMessage = text;
+        return;
+      }
+      if (this.authRetry === "idle" && this.settleConnect) {
+        this.sdkMessage = text;
+        this.retryAuthConnect();
+        return;
+      }
+      // The retry is in flight and this event still belongs to the previous token.
+      if (this.authRetry === "armed") {
         this.sdkMessage = text;
         return;
       }
@@ -220,30 +232,54 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   private deliverToken(callback: (token: string) => void) {
-    // The SDK asks again on every auth retry and rejects a repeated access token.
-    if (!this.sdkTokenHanded && this.sdkToken) {
-      this.sdkTokenHanded = true;
-      callback(this.sdkToken);
-      return;
-    }
-    this.sdkTokenHanded = true;
-    void getAccessToken(true)
-      .then((token) => {
-        this.sdkToken = token;
-        callback(token);
-      })
-      .catch((reason: unknown) => {
-        this.rejectConnect(errorText(reason, "Connect Spotify to play"));
-      });
+    // `getOAuthToken` is invoked as a Promise executor and must resolve once.
+    // The embedded transport rejects a second delivery of the same access token.
+    const generation = this.tokenGeneration;
+    const deliver = this.tokenQueue.then(async () => {
+      if (generation !== this.tokenGeneration || this.destroyed) return;
+      const fresh = this.needsFreshToken;
+      this.needsFreshToken = false;
+      let token =
+        !fresh && !this.handedToken && this.sdkToken ? this.sdkToken : await getAccessToken(true);
+      if (generation !== this.tokenGeneration || this.destroyed) return;
+      if (token === this.handedToken) token = await getAccessToken(true);
+      if (generation !== this.tokenGeneration || this.destroyed) return;
+      if (!token || token === this.handedToken) throw new Error("Spotify player did not connect");
+      this.sdkToken = token;
+      this.handedToken = token;
+      if (this.authRetry === "armed") this.authRetry = "live";
+      callback(token);
+    });
+    this.tokenQueue = deliver.then(
+      () => undefined,
+      () => undefined,
+    );
+    void deliver.catch((reason: unknown) => {
+      if (generation !== this.tokenGeneration || this.destroyed) return;
+      this.rejectConnect(errorText(reason, "Connect Spotify to play"));
+    });
+  }
+
+  private blockInitializedPlayer() {
+    if (!this.playerInitFailed) return false;
+    const message = this.initError || "Failed to initialize player";
+    this.fail(message);
+    return true;
   }
 
   private async ensurePlayer() {
     if (this.destroyed) return;
+    if (this.blockInitializedPlayer()) {
+      throw new Error(this.initError || "Failed to initialize player");
+    }
     if (this.player && this.deviceId) return;
     const current = this.connecting;
     if (current) {
       await current;
       if (this.destroyed) return;
+      if (this.blockInitializedPlayer()) {
+        throw new Error(this.initError || "Failed to initialize player");
+      }
       if (this.player && this.deviceId) return;
       if (this.connecting && this.connecting !== current) {
         await this.connecting;
@@ -253,6 +289,8 @@ export class SpotifySdkEngine implements PlaybackEngine {
     if (this.player && !this.deviceId && current) {
       this.player.disconnect();
       this.player = null;
+      this.handedToken = "";
+      this.sdkToken = "";
     }
     const attempt = this.connectPlayer();
     this.connecting = attempt;
@@ -264,21 +302,54 @@ export class SpotifySdkEngine implements PlaybackEngine {
       this.deviceId = "";
       this.finishConnect();
       this.player?.disconnect();
-      this.player = null;
-      this.sdkToken = "";
-      this.sdkTokenHanded = false;
-      if (!this.destroyed) resetSpotifySdk();
+      if (!this.playerInitFailed) {
+        this.player = null;
+        this.handedToken = "";
+        this.sdkToken = "";
+      }
       const message = errorText(reason, "Spotify player did not connect");
       this.fail(message);
       throw reason instanceof Error ? reason : new Error(message);
     }
   }
 
+  private armConnectTimer() {
+    if (this.connectTimer) window.clearTimeout(this.connectTimer);
+    this.connectTimer = window.setTimeout(() => {
+      this.finishConnect(new Error(this.sdkMessage ?? "Spotify player did not connect"));
+    }, CONNECT_TIMEOUT_MS);
+  }
+
+  private retryAuthConnect() {
+    const player = this.player;
+    if (
+      this.authRetry !== "idle" ||
+      !this.settleConnect ||
+      !player ||
+      this.playerInitFailed ||
+      this.deviceId
+    ) {
+      return;
+    }
+    this.authRetry = "armed";
+    this.needsFreshToken = true;
+    this.armConnectTimer();
+    // `connect()` asks for a token again. The next callback must be a new string.
+    void player.connect().then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+
   private async connectPlayer() {
     await waitForSdk();
     if (this.destroyed || activeEngine !== this) return;
+    this.tokenGeneration += 1;
+    this.tokenQueue = Promise.resolve();
+    this.handedToken = "";
+    this.authRetry = "idle";
+    this.needsFreshToken = false;
     this.sdkToken = await getAccessToken();
-    this.sdkTokenHanded = false;
     if (this.destroyed || activeEngine !== this) return;
     const player = this.createPlayer();
     if (!player) throw new Error("Spotify player did not load");
@@ -303,12 +374,14 @@ export class SpotifySdkEngine implements PlaybackEngine {
         resolve();
       };
       this.settleConnect = settle;
-      this.connectTimer = window.setTimeout(() => {
-        settle(new Error(this.sdkMessage ?? "Spotify player did not connect"));
-      }, CONNECT_TIMEOUT_MS);
-      // `connect()` can resolve false before `ready`. The device id from `ready` is what matters.
+      this.armConnectTimer();
+      // `connect()` can resolve false before `ready`. Retry auth once, then
+      // keep waiting for the device id.
       void player.connect().then(
-        () => undefined,
+        (connected) => {
+          if (this.deviceId || this.settleConnect !== settle || this.playerInitFailed) return;
+          if (connected === false) this.retryAuthConnect();
+        },
         () => undefined,
       );
     });

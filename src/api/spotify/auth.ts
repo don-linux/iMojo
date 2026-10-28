@@ -61,24 +61,45 @@ async function postToken(body: URLSearchParams) {
 
 let refreshing: Promise<string> | null = null;
 
+function refreshAccessToken(clientId: string) {
+  const tokens = readTokens();
+  if (!tokens) return Promise.reject(new SpotifySessionError("Connect Spotify to play"));
+  return postToken(
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refreshToken,
+      client_id: clientId,
+    }),
+  ).then((payload) => storeTokenResponse(payload, tokens.refreshToken).accessToken);
+}
+
+function beginRefresh(request: Promise<string>) {
+  const tracked = request.finally(() => {
+    if (refreshing === tracked) refreshing = null;
+  });
+  refreshing = tracked;
+  return tracked;
+}
+
 export function getAccessToken(force = false) {
   const clientId = readClientId();
   const tokens = readTokens();
   if (!clientId || !tokens)
     return Promise.reject(new SpotifySessionError("Connect Spotify to play"));
   if (!force && tokens.expiresAt > Date.now() + 30_000) return Promise.resolve(tokens.accessToken);
-  refreshing ??= postToken(
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: tokens.refreshToken,
-      client_id: clientId,
-    }),
-  )
-    .then((payload) => storeTokenResponse(payload, tokens.refreshToken).accessToken)
-    .finally(() => {
-      refreshing = null;
-    });
-  return refreshing;
+  if (!force) {
+    if (!refreshing) refreshing = beginRefresh(refreshAccessToken(clientId));
+    return refreshing;
+  }
+  // A forced refresh must not join one already in flight. Wait until that
+  // request stores the rotated refresh token, then ask for another access token.
+  const pending = refreshing;
+  return beginRefresh(
+    (pending ?? Promise.resolve("")).then(
+      () => refreshAccessToken(clientId),
+      () => refreshAccessToken(clientId),
+    ),
+  );
 }
 
 export async function exchangeCode(code: string) {
