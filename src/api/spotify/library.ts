@@ -17,6 +17,7 @@ type SpotifyTrack = {
   name: string;
   duration_ms: number;
   is_playable?: boolean;
+  is_local?: boolean;
   preview_url?: string | null;
   type?: string;
   artists?: SpotifyArtist[];
@@ -31,7 +32,7 @@ type SpotifyPlaylist = {
   items?: { total?: number };
   tracks?: { total?: number };
 };
-type SavedTrack = { track: SpotifyTrack | null };
+type SavedTrack = { track: SpotifyTrack | null; is_local?: boolean };
 type PlaylistItem = { item?: SpotifyTrack | null; track?: SpotifyTrack | null; is_local?: boolean };
 type Me = { id: string; display_name: string | null; product?: string };
 
@@ -48,8 +49,15 @@ function artwork(images: SpotifyImage[] | undefined) {
   return (large ?? sized[sized.length - 1])?.url;
 }
 
+function isLocal(
+  entry: { is_local?: boolean } | null | undefined,
+  track: { is_local?: boolean } | null | undefined,
+) {
+  return entry?.is_local === true || track?.is_local === true;
+}
+
 function mapTrack(track: SpotifyTrack | null | undefined): Track | null {
-  if (!track?.id || track.type === "episode") return null;
+  if (!track?.id || track.type === "episode" || track.is_local) return null;
   const artist = track.artists?.[0];
   return {
     id: track.id,
@@ -101,12 +109,17 @@ async function token() {
 
 async function followedArtists() {
   const artists: SpotifyArtist[] = [];
+  const seen = new Set<string>();
   let next: string | null = `${API}/me/following?type=artist&limit=50`;
+  let pages = 0;
   while (next) {
-    const page: { artists?: { items?: SpotifyArtist[]; next?: string | null } } = await spotifyJson(
-      next,
-      await token(),
-    );
+    if (seen.has(next) || pages >= 200) break;
+    seen.add(next);
+    pages += 1;
+    const page: {
+      artists?: { items?: SpotifyArtist[]; next?: string | null };
+    } | null = await spotifyJson(next, await token());
+    if (!page) break;
     artists.push(...(page.artists?.items ?? []));
     next = page.artists?.next ?? null;
   }
@@ -133,6 +146,22 @@ export function cachedSpotifyLibrary() {
   return readCachedLibrary();
 }
 
+export async function ensurePremium(signal?: AbortSignal) {
+  const cached = readProfile();
+  if (cached?.product.trim().toLowerCase() === "premium") return;
+  const me = await spotifyJson<Me | null>(`${API}/me`, await token(), signal);
+  if (!me?.id) throw new SpotifyRequestError(401, "Spotify session expired. Connect again.");
+  const product = me.product || "";
+  writeProfile({
+    id: me.id,
+    name: me.display_name || cached?.name || "Spotify",
+    product,
+  });
+  if (product.trim().toLowerCase() !== "premium") {
+    throw new SpotifyRequestError(403, "Spotify Premium is required to play");
+  }
+}
+
 export async function fetchSpotifyLibrary(): Promise<MusicLibrary> {
   const access = await token();
   const me = await spotifyJson<Me>(`${API}/me`, access);
@@ -150,6 +179,7 @@ export async function fetchSpotifyLibrary(): Promise<MusicLibrary> {
 
   const library = emptySpotifyLibrary();
   for (const savedTrack of saved) {
+    if (isLocal(savedTrack, savedTrack.track)) continue;
     const track = mapTrack(savedTrack.track);
     if (!track) continue;
     remember(library, track);
@@ -178,16 +208,7 @@ export async function fetchPlaylistTracks(
 ): Promise<MusicLibrary> {
   const current = library.playlists.find((playlist) => playlist.id === id);
   if (!current || current.tracksLoaded || current.unavailable) return library;
-  const profile = readProfile();
-  const owned = Boolean(profile?.id && current.ownerId === profile.id);
-  if (current.ownerId && !owned && !current.collaborative) {
-    return replacePlaylist(library, {
-      ...current,
-      unavailable: true,
-      tracksLoaded: true,
-      trackIds: [],
-    });
-  }
+  if (ownerBlocked(current)) return denyPlaylist(library, current);
 
   try {
     const items = await collectPages<PlaylistItem>(
@@ -204,8 +225,9 @@ export async function fetchPlaylistTracks(
     };
     const trackIds: string[] = [];
     for (const entry of items) {
-      if (entry.is_local) continue;
-      const track = mapTrack(entry.item ?? entry.track);
+      const raw = entry.item ?? entry.track;
+      if (isLocal(entry, raw)) continue;
+      const track = mapTrack(raw);
       if (!track) continue;
       remember(nextLibrary, track);
       trackIds.push(track.id);
@@ -219,18 +241,33 @@ export async function fetchPlaylistTracks(
     writeCachedLibrary(next);
     return next;
   } catch (reason) {
-    if (reason instanceof SpotifyRequestError && (reason.status === 403 || reason.status === 404)) {
-      const next = replacePlaylist(library, {
-        ...current,
-        unavailable: true,
-        tracksLoaded: true,
-        trackIds: [],
-      });
-      writeCachedLibrary(next);
-      return next;
+    if (
+      reason instanceof SpotifyRequestError &&
+      (reason.status === 403 || reason.status === 404) &&
+      ownerBlocked(current)
+    ) {
+      return denyPlaylist(library, current);
     }
     throw reason;
   }
+}
+
+function ownerBlocked(playlist: Playlist) {
+  if (!playlist.ownerId || playlist.collaborative) return false;
+  const ownerId = readProfile()?.id;
+  if (!ownerId) return false;
+  return playlist.ownerId !== ownerId;
+}
+
+function denyPlaylist(library: MusicLibrary, playlist: Playlist) {
+  const next = replacePlaylist(library, {
+    ...playlist,
+    unavailable: true,
+    tracksLoaded: true,
+    trackIds: [],
+  });
+  writeCachedLibrary(next);
+  return next;
 }
 
 function replacePlaylist(library: MusicLibrary, playlist: Playlist): MusicLibrary {

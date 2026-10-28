@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { exchangeCode, expectedAuthState, publishAuthResult } from "../api/spotify/auth.ts";
 import "./connection.css";
 
+// Module scope so StrictMode's remounted effect does not exchange the code twice.
 let exchangeStarted = false;
 
 export function CallbackPage() {
@@ -14,10 +15,11 @@ export function CallbackPage() {
     const code = params.get("code");
     const state = params.get("state");
     const error = params.get("error");
+    const description = params.get("error_description");
     window.history.replaceState({}, "", "/callback");
 
     const finish = (ok: boolean, text: string) => {
-      publishAuthResult(ok, ok ? undefined : text);
+      publishAuthResult(ok, ok ? undefined : text, state ?? undefined);
       setMessage(text);
       window.setTimeout(() => {
         window.close();
@@ -26,14 +28,14 @@ export function CallbackPage() {
     };
 
     if (error) {
-      finish(false, "Spotify sign-in was cancelled");
+      finish(false, description?.trim() || "Spotify sign-in was cancelled");
       return;
     }
     if (!code || !state || state !== expectedAuthState()) {
       finish(false, "Spotify sign-in could not be verified");
       return;
     }
-    void exchangeCode(code)
+    void withExchangeLock(code, () => exchangeCode(code))
       .then(() => finish(true, "Signed in. You can return to the iPod."))
       .catch((reason: unknown) => {
         const text = reason instanceof Error ? reason.message : "Spotify sign-in failed";
@@ -46,4 +48,10 @@ export function CallbackPage() {
       <p>{message}</p>
     </main>
   );
+}
+
+function withExchangeLock(code: string, task: () => Promise<void>) {
+  const locks = globalThis.navigator?.locks;
+  if (!locks?.request) return task();
+  return locks.request(`ipod.spotify.exchange:${code}`, task);
 }
