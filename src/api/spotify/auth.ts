@@ -61,11 +61,12 @@ async function postToken(body: URLSearchParams) {
 
 let refreshing: Promise<string> | null = null;
 
-export function getAccessToken() {
+export function getAccessToken(force = false) {
   const clientId = readClientId();
   const tokens = readTokens();
-  if (!clientId || !tokens) return Promise.reject(new SpotifySessionError("Connect Spotify to play"));
-  if (tokens.expiresAt > Date.now() + 30_000) return Promise.resolve(tokens.accessToken);
+  if (!clientId || !tokens)
+    return Promise.reject(new SpotifySessionError("Connect Spotify to play"));
+  if (!force && tokens.expiresAt > Date.now() + 30_000) return Promise.resolve(tokens.accessToken);
   refreshing ??= postToken(
     new URLSearchParams({
       grant_type: "refresh_token",
