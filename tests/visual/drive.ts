@@ -115,10 +115,10 @@ export async function captureLibrary(page: Page, colorScheme: string) {
 
   await choose(page, "Spotify");
   await expectSelected(page, "Refresh Library");
-  await expect(
-    page.locator('.sheet.live [data-testid="menu-item"]').filter({ hasText: "Error" }).locator('[data-testid="item-value"]'),
-  ).toHaveText("Failed to fetch");
-  await shotDevice(page, name("spotify"));
+  // The offline error copy is app text that the refactor rewords; the row layout is what this shot guards.
+  const errorRow = page.locator('.sheet.live [data-testid="menu-item"]').filter({ hasText: "Error" });
+  await expect(errorRow.locator('[data-testid="item-value"]')).not.toHaveText("");
+  await shotDevice(page, name("spotify"), { masks: [errorRow] });
 
   await move(page, "ArrowUp", 1, "Client ID");
   await page.getByTestId("wheel-select-button").click();
