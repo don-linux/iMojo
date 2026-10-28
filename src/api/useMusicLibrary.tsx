@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createProvider, providerIdFromEnv, providerLabel } from "./provider.ts";
-import { emptyLibrary } from "./providers/none.ts";
+import { createProvider, providerLabel } from "./provider.ts";
 import { emptySpotifyLibrary } from "./spotify/library.ts";
 import { SpotifySessionError } from "./spotify/api.ts";
 import type {
@@ -11,9 +10,10 @@ import type {
   Track,
 } from "./types.ts";
 
+const SETUP_CONNECTION: ProviderConnection = { status: "setup", account: null, error: null };
+
 export type MusicLibraryState = {
   library: MusicLibrary;
-  providerId: ReturnType<typeof providerIdFromEnv>;
   sourceLabel: string;
   status: LoadStatus;
   error: string | null;
@@ -26,24 +26,17 @@ export type MusicLibraryState = {
   resolvePlayback: (track: Track) => Promise<PlaybackSource | null>;
 };
 
-function initialConnection(provider: ReturnType<typeof createProvider>): ProviderConnection {
-  return (
-    provider.readConnection?.() ?? {
-      status: provider.connectionStatus?.() ?? (provider.connect ? "disconnected" : "setup"),
-      account: null,
-      error: null,
-    }
-  );
+function reportedConnection(provider: ReturnType<typeof createProvider>): ProviderConnection {
+  return provider.readConnection?.() ?? SETUP_CONNECTION;
 }
 
 export function useMusicLibrary(): MusicLibraryState {
-  const providerId = useMemo(() => providerIdFromEnv(), []);
-  const provider = useMemo(() => createProvider(providerId), [providerId]);
-  const [library, setLibrary] = useState<MusicLibrary>(emptyLibrary);
+  const provider = useMemo(() => createProvider(), []);
+  const [library, setLibrary] = useState<MusicLibrary>(emptySpotifyLibrary);
   const [status, setStatus] = useState<LoadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ProviderConnection>(() =>
-    initialConnection(provider),
+    reportedConnection(provider),
   );
   const libraryRef = useRef(library);
   libraryRef.current = library;
@@ -51,7 +44,7 @@ export function useMusicLibrary(): MusicLibraryState {
   const reload = useCallback(async () => {
     const snapshot = provider.readConnection?.();
     if (snapshot && (snapshot.status === "setup" || snapshot.status === "disconnected")) {
-      setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      setLibrary(emptySpotifyLibrary());
       setStatus("ready");
       setError(null);
       setConnection(snapshot);
@@ -65,70 +58,70 @@ export function useMusicLibrary(): MusicLibraryState {
       const next = await provider.loadLibrary();
       setLibrary(next);
       setStatus("ready");
-      setConnection(
-        provider.readConnection?.() ?? { status: "connected", account: null, error: null },
-      );
+      setConnection(reportedConnection(provider));
     } catch (reason) {
       const nextConnection = provider.readConnection?.();
       if (reason instanceof SpotifySessionError && nextConnection) {
-        setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+        setLibrary(emptySpotifyLibrary());
         setStatus("ready");
         setError(null);
-        setConnection({ ...nextConnection, status: "error", error: reason.message });
+        setConnection(
+          nextConnection.status === "setup"
+            ? { ...nextConnection, error: reason.message }
+            : { ...nextConnection, status: "error", error: reason.message },
+        );
         return;
       }
-      if (!cached) setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      if (!cached) setLibrary(emptySpotifyLibrary());
       setStatus(cached ? "ready" : "error");
       const message = reason instanceof Error ? reason.message : "Unable to load the music library";
       setError(cached ? null : message);
-      if (cached && nextConnection) setConnection({ ...nextConnection, error: message });
+      if (cached && nextConnection && nextConnection.status !== "setup") {
+        setConnection({ ...nextConnection, error: message });
+      }
     }
-  }, [provider, providerId]);
+  }, [provider]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   const connectProvider = useCallback(async () => {
-    if (!provider.connect) {
-      setConnection({
-        status: "error",
-        account: null,
-        error: `${providerLabel(providerId)} does not require a connection`,
-      });
-      return;
+    if (!provider.connect) return;
+    const before = reportedConnection(provider);
+    if (before.status !== "setup") {
+      setConnection((current) => ({ ...current, status: "connecting", error: null }));
     }
-    setConnection((current) => ({ ...current, status: "connecting", error: null }));
     try {
       const next = await provider.connect();
       setConnection(next);
       if (next.status === "connected") await reload();
     } catch (reason) {
-      setConnection({
-        status: "error",
-        account: null,
-        error: reason instanceof Error ? reason.message : "Provider connection failed",
-      });
+      const snapshot = reportedConnection(provider);
+      const message = reason instanceof Error ? reason.message : "Provider connection failed";
+      setConnection(
+        snapshot.status === "setup"
+          ? { ...snapshot, error: message }
+          : { ...snapshot, status: "error", error: message },
+      );
     }
-  }, [provider, providerId, reload]);
+  }, [provider, reload]);
 
   const disconnectProvider = useCallback(async () => {
     try {
       await provider.disconnect?.();
     } finally {
-      setConnection(provider.readConnection?.() ?? { status: "setup", account: null, error: null });
-      setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      setConnection(reportedConnection(provider));
+      setLibrary(emptySpotifyLibrary());
       setStatus("ready");
       setError(null);
     }
-  }, [provider, providerId]);
+  }, [provider]);
 
   const saveClientId = useCallback(
     (clientId: string) => {
       provider.saveClientId?.(clientId);
-      setConnection(
-        provider.readConnection?.() ?? { status: "disconnected", account: null, error: null },
-      );
+      setConnection(reportedConnection(provider));
       setError(null);
     },
     [provider],
@@ -154,8 +147,7 @@ export function useMusicLibrary(): MusicLibraryState {
 
   return {
     library,
-    providerId,
-    sourceLabel: providerLabel(providerId),
+    sourceLabel: providerLabel(),
     status,
     error,
     connection,

@@ -99,7 +99,7 @@ export default function Ipod() {
     repeat: settings.repeat,
     volume: settings.volume / 100,
     resolve: music.resolvePlayback,
-    createEngine: music.providerId === "spotify" ? () => new SpotifySdkEngine() : undefined,
+    createEngine: () => new SpotifySdkEngine(),
     onVolumeChange: (value) => {
       const percent = Math.round(value * 100);
       setSettings((current) =>
@@ -343,9 +343,8 @@ export default function Ipod() {
   }, [music.status]);
 
   useEffect(() => {
-    if (music.providerId === "spotify" && music.connection.status === "connected")
-      warmSpotifyPlayer();
-  }, [music.providerId, music.connection.status]);
+    if (music.connection.status === "connected") warmSpotifyPlayer();
+  }, [music.connection.status]);
 
   const playlistId = stack.at(-1)?.id === "playlist" ? stack.at(-1)?.param : undefined;
   const openPlaylist = music.library.playlists.find((playlist) => playlist.id === playlistId);
@@ -824,7 +823,7 @@ export default function Ipod() {
 
   function playPause() {
     if (overlayRef.current) return;
-    if (music.providerId === "spotify") primeSpotifyPlayback();
+    primeSpotifyPlayback();
     pressOnly();
     const current = playerRef.current;
     if (current.hasLoaded || current.loading) {
@@ -1035,7 +1034,7 @@ export default function Ipod() {
       return;
     }
     if (row.action === "play") {
-      if (music.providerId === "spotify") primeSpotifyPlayback();
+      primeSpotifyPlayback();
       playTrack(row.id);
       return;
     }
@@ -1078,7 +1077,7 @@ export default function Ipod() {
       return;
     }
     if (row.action === "spotify-connect") {
-      if (music.providerId === "spotify") primeSpotifyPlayback();
+      primeSpotifyPlayback();
       void music.connectProvider();
       return;
     }

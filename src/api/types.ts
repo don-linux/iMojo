@@ -1,4 +1,4 @@
-export type ProviderId = "none" | "spotify";
+export type ProviderId = "spotify";
 
 export type LoadStatus = "idle" | "loading" | "ready" | "error";
 

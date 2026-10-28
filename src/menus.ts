@@ -107,7 +107,7 @@ export const EMPTY_MENU_DATA: MenuData = {
     status: "setup",
     account: null,
     error: null,
-    sourceLabel: "No Music",
+    sourceLabel: "Spotify",
     counts: { playlists: 0, artists: 0, songs: 0 },
     redirectCopied: false,
   },
