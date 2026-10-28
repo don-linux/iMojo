@@ -64,7 +64,11 @@ export type Row = {
     | "play"
     | "spotify-connect"
     | "spotify-disconnect"
-    | "spotify-refresh";
+    | "spotify-refresh"
+    | "spotify-copy-redirect"
+    | "spotify-create-app"
+    | "spotify-docs"
+    | "spotify-client-id";
   screen?: ScreenId;
   screenTitle?: string;
   param?: string;
@@ -87,7 +91,9 @@ export type MenuData = {
     error: string | null;
     sourceLabel: string;
     counts: { playlists: number; artists: number; songs: number };
+    redirectCopied: boolean;
   };
+  playlistDetail: Record<string, { loaded: boolean; unavailable: boolean }>;
 };
 
 export const EMPTY_MENU_DATA: MenuData = {
@@ -103,7 +109,9 @@ export const EMPTY_MENU_DATA: MenuData = {
     error: null,
     sourceLabel: "No Music",
     counts: { playlists: 0, artists: 0, songs: 0 },
+    redirectCopied: false,
   },
+  playlistDetail: {},
 };
 
 const SHUFFLE_LABEL: Record<Shuffle, string> = { off: "Off", songs: "Songs" };
@@ -256,7 +264,15 @@ export function rows(frame: Frame, settings: Settings, data: MenuData = EMPTY_ME
       }
       return trackRows(data.songs);
     case "playlist": {
-      const songs = data.playlistSongs[frame.param ?? ""] ?? [];
+      const id = frame.param ?? "";
+      const detail = data.playlistDetail[id];
+      const songs = data.playlistSongs[id] ?? [];
+      if (detail?.unavailable) {
+        return [{ id: "unavailable", title: "Unavailable", action: "info", centered: true }];
+      }
+      if (detail && !detail.loaded) {
+        return [{ id: "loading", title: "Loading…", action: "info", centered: true }];
+      }
       if (songs.length === 0) {
         return [{ id: "no-music", title: "No Music", action: "info", centered: true }];
       }
@@ -311,6 +327,26 @@ export function rows(frame: Frame, settings: Settings, data: MenuData = EMPTY_ME
           action: "info",
         },
       ];
+      const setup: Row[] = [
+        {
+          id: "spotify-copy-redirect",
+          title: "Copy Redirect URI",
+          value: connection.redirectCopied ? "Copied" : undefined,
+          action: "spotify-copy-redirect",
+        },
+        {
+          id: "spotify-create-app",
+          title: "Create personal app",
+          action: "spotify-create-app",
+        },
+        { id: "spotify-docs", title: "Connection docs", action: "spotify-docs" },
+        {
+          id: "spotify-client-id",
+          title: "Client ID",
+          value: connection.status === "setup" ? "Not set" : "Saved",
+          action: "spotify-client-id",
+        },
+      ];
       const actions: Row[] =
         connection.status === "connected"
           ? [
@@ -326,7 +362,7 @@ export function rows(frame: Frame, settings: Settings, data: MenuData = EMPTY_ME
           action: "info",
         });
       }
-      return [...base, ...actions];
+      return [...base, ...setup, ...actions];
     }
     case "about":
       return [

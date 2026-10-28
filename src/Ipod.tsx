@@ -34,7 +34,10 @@ import { beginSlide, haltSlide } from "./ipod/screenSlide.ts";
 import { useMusicLibrary } from "./api/useMusicLibrary.tsx";
 import { usePlayer } from "./api/player.ts";
 import { artistTracks, playlistTracks, savedTracks } from "./api/selectors.ts";
+import { SpotifySdkEngine, primeSpotifyPlayback, warmSpotifyPlayer } from "./api/spotify/engine.ts";
+import { copyText, spotifyRedirectUri } from "./api/spotify/redirect.ts";
 import type { Track } from "./api/types.ts";
+import { ClientIdDialog } from "./ipod/ClientIdDialog.tsx";
 import "./ipod.css";
 
 const SELECT_HOLD_MS = 5000;
@@ -89,11 +92,14 @@ export default function Ipod() {
   const [errorDismissed, setErrorDismissed] = useState(false);
 
   const music = useMusicLibrary();
+  const [redirectCopied, setRedirectCopied] = useState(false);
+  const [clientIdOpen, setClientIdOpen] = useState(false);
   const player = usePlayer({
     shuffle: settings.shuffle === "songs",
     repeat: settings.repeat,
     volume: settings.volume / 100,
     resolve: music.resolvePlayback,
+    createEngine: music.providerId === "spotify" ? () => new SpotifySdkEngine() : undefined,
     onVolumeChange: (value) => {
       const percent = Math.round(value * 100);
       setSettings((current) =>
@@ -148,8 +154,16 @@ export default function Ipod() {
       playlists: music.library.playlists.map((playlist) => ({
         id: playlist.id,
         name: playlist.name,
-        count: playlist.trackIds.length,
+        count: playlist.tracksLoaded
+          ? playlist.trackIds.length
+          : (playlist.total ?? playlist.trackIds.length),
       })),
+      playlistDetail: Object.fromEntries(
+        music.library.playlists.map((playlist) => [
+          playlist.id,
+          { loaded: Boolean(playlist.tracksLoaded), unavailable: Boolean(playlist.unavailable) },
+        ]),
+      ),
       artists: music.library.artists.map((artist) => ({
         id: artist.id,
         name: artist.name,
@@ -172,6 +186,7 @@ export default function Ipod() {
           artists: music.library.artists.length,
           songs: music.library.savedTrackIds.length,
         },
+        redirectCopied,
       },
     };
   }, [
@@ -181,6 +196,7 @@ export default function Ipod() {
     music.sourceLabel,
     player.track,
     player.finished,
+    redirectCopied,
   ]);
 
   const settingsRef = useRef(settings);
@@ -325,6 +341,19 @@ export default function Ipod() {
   useEffect(() => {
     if (music.status !== "error") setErrorDismissed(false);
   }, [music.status]);
+
+  useEffect(() => {
+    if (music.providerId === "spotify" && music.connection.status === "connected")
+      warmSpotifyPlayer();
+  }, [music.providerId, music.connection.status]);
+
+  const playlistId = stack.at(-1)?.id === "playlist" ? stack.at(-1)?.param : undefined;
+  const openPlaylist = music.library.playlists.find((playlist) => playlist.id === playlistId);
+  useEffect(() => {
+    if (!playlistId || !openPlaylist || openPlaylist.tracksLoaded || openPlaylist.unavailable)
+      return;
+    void music.loadPlaylist(playlistId);
+  }, [playlistId, openPlaylist, music.loadPlaylist]);
 
   useEffect(() => {
     if (!online) player.pause();
@@ -795,6 +824,7 @@ export default function Ipod() {
 
   function playPause() {
     if (overlayRef.current) return;
+    if (music.providerId === "spotify") primeSpotifyPlayback();
     pressOnly();
     const current = playerRef.current;
     if (current.hasLoaded || current.loading) {
@@ -1005,6 +1035,7 @@ export default function Ipod() {
       return;
     }
     if (row.action === "play") {
+      if (music.providerId === "spotify") primeSpotifyPlayback();
       playTrack(row.id);
       return;
     }
@@ -1027,11 +1058,32 @@ export default function Ipod() {
       pop();
       return;
     }
+    if (row.action === "spotify-copy-redirect") {
+      void copyText(spotifyRedirectUri()).then(() => {
+        setRedirectCopied(true);
+        window.setTimeout(() => setRedirectCopied(false), 1500);
+      });
+      return;
+    }
+    if (row.action === "spotify-create-app") {
+      window.open("https://developer.spotify.com/dashboard", "_blank", "noopener");
+      return;
+    }
+    if (row.action === "spotify-docs") {
+      window.open("/connection", "_blank", "noopener");
+      return;
+    }
+    if (row.action === "spotify-client-id") {
+      setClientIdOpen(true);
+      return;
+    }
     if (row.action === "spotify-connect") {
+      if (music.providerId === "spotify") primeSpotifyPlayback();
       void music.connectProvider();
       return;
     }
     if (row.action === "spotify-disconnect") {
+      playerRef.current.stop();
       void music.disconnectProvider();
       return;
     }
@@ -1107,87 +1159,95 @@ export default function Ipod() {
         : "list";
 
   return (
-    <div className="slot">
-      <div className="device">
-        <div className="ipod" role="application" aria-label="iPod" tabIndex={0} ref={deviceRef}>
-          <div className="ipod-shadow">
-            <div className="body">
-              <div className={lit ? "screen backlit" : "screen"}>
-                <div className={overlay ? "screen-clip hidden" : "screen-clip"}>
-                  <div className="menu">
-                    <MenuTitle
-                      title={titleFor(frame)}
-                      hasTrack={player.track != null && !player.finished}
-                      playing={player.playing}
-                      brick={brickTitle}
-                    />
-                    <div className="screen-body">
-                      {layers.map((layer) => {
-                        const shown = layer.live ? frame : layer.frame;
-                        return (
-                          <div
-                            key={layer.id}
-                            className={layer.live ? "sheet live" : "sheet"}
-                            ref={(node) => {
-                              if (node) sheetNodes.current.set(layer.id, node);
-                              else sheetNodes.current.delete(layer.id);
-                            }}
-                            inert={!layer.live}
-                          >
-                            {renderBody(shown, layer.live, layer.game)}
-                          </div>
-                        );
-                      })}
+    <>
+      <div className="slot">
+        <div className="device">
+          <div className="ipod" role="application" aria-label="iPod" tabIndex={0} ref={deviceRef}>
+            <div className="ipod-shadow">
+              <div className="body">
+                <div className={lit ? "screen backlit" : "screen"}>
+                  <div className={overlay ? "screen-clip hidden" : "screen-clip"}>
+                    <div className="menu">
+                      <MenuTitle
+                        title={titleFor(frame)}
+                        hasTrack={player.track != null && !player.finished}
+                        playing={player.playing}
+                        brick={brickTitle}
+                      />
+                      <div className="screen-body">
+                        {layers.map((layer) => {
+                          const shown = layer.live ? frame : layer.frame;
+                          return (
+                            <div
+                              key={layer.id}
+                              className={layer.live ? "sheet live" : "sheet"}
+                              ref={(node) => {
+                                if (node) sheetNodes.current.set(layer.id, node);
+                                else sheetNodes.current.delete(layer.id);
+                              }}
+                              inert={!layer.live}
+                            >
+                              {renderBody(shown, layer.live, layer.game)}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
+                  {overlay === "loading" ? <LoadingScreen /> : null}
+                  {overlay === "offline" ? (
+                    <ErrorScreen message="You are not connected to the internet" />
+                  ) : null}
+                  {overlay === "library-error" ? (
+                    <ErrorScreen message={music.error ?? "Unable to load music"} />
+                  ) : null}
                 </div>
-                {overlay === "loading" ? <LoadingScreen /> : null}
-                {overlay === "offline" ? (
-                  <ErrorScreen message="You are not connected to the internet" />
-                ) : null}
-                {overlay === "library-error" ? (
-                  <ErrorScreen message={music.error ?? "Unable to load music"} />
-                ) : null}
-              </div>
 
-              <ClickWheel
-                playing={player.hasLoaded ? player.playing : player.loading}
-                scrollTarget={wheelScrollTarget}
-                disabled={isInert}
-                disableSkip={nowPlaying.seeking}
-                selectHoldMs={frame.id === "about" ? SELECT_HOLD_MS : null}
-                onScroll={(detail) => actions.current.scroll(detail)}
-                onKeyScroll={(step, heldMs) => actions.current.keyStep(step, heldMs)}
-                onSteer={(step) => actions.current.steer(step)}
-                onMenu={() => actions.current.menu()}
-                onMenuHold={() => actions.current.menuHold()}
-                onBack={() => actions.current.back()}
-                onForward={() => actions.current.forward()}
-                onBackHold={(detail) => actions.current.backHold(detail.repeat)}
-                onForwardHold={(detail) => actions.current.forwardHold(detail.repeat)}
-                onPlayPause={() => actions.current.playPause()}
-                onSelect={() => actions.current.select()}
-                onSelectHold={() => actions.current.openBrick()}
-                onDragStart={() => {
-                  unlockClick();
-                  scroller.current.reset();
-                  seekScroller.current.reset();
-                  volumeScroller.current.reset();
-                  volumeClickLatch.current = false;
-                  volumeClickStep.current = null;
-                  nowPlaying.handleDragStart();
-                }}
-                onDragEnd={() => {
-                  scroller.current.reset();
-                  seekScroller.current.reset();
-                  volumeScroller.current.reset();
-                  nowPlaying.handleDragEnd();
-                }}
-              />
+                <ClickWheel
+                  playing={player.hasLoaded ? player.playing : player.loading}
+                  scrollTarget={wheelScrollTarget}
+                  disabled={isInert}
+                  disableSkip={nowPlaying.seeking}
+                  selectHoldMs={frame.id === "about" ? SELECT_HOLD_MS : null}
+                  onScroll={(detail) => actions.current.scroll(detail)}
+                  onKeyScroll={(step, heldMs) => actions.current.keyStep(step, heldMs)}
+                  onSteer={(step) => actions.current.steer(step)}
+                  onMenu={() => actions.current.menu()}
+                  onMenuHold={() => actions.current.menuHold()}
+                  onBack={() => actions.current.back()}
+                  onForward={() => actions.current.forward()}
+                  onBackHold={(detail) => actions.current.backHold(detail.repeat)}
+                  onForwardHold={(detail) => actions.current.forwardHold(detail.repeat)}
+                  onPlayPause={() => actions.current.playPause()}
+                  onSelect={() => actions.current.select()}
+                  onSelectHold={() => actions.current.openBrick()}
+                  onDragStart={() => {
+                    unlockClick();
+                    scroller.current.reset();
+                    seekScroller.current.reset();
+                    volumeScroller.current.reset();
+                    volumeClickLatch.current = false;
+                    volumeClickStep.current = null;
+                    nowPlaying.handleDragStart();
+                  }}
+                  onDragEnd={() => {
+                    scroller.current.reset();
+                    seekScroller.current.reset();
+                    volumeScroller.current.reset();
+                    nowPlaying.handleDragEnd();
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+      {clientIdOpen ? (
+        <ClientIdDialog
+          onClose={() => setClientIdOpen(false)}
+          onSave={(clientId) => music.saveClientId(clientId)}
+        />
+      ) : null}
+    </>
   );
 }

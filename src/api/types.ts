@@ -31,6 +31,12 @@ export type Playlist = {
   sourceId: string;
   trackIds: string[];
   artworkUrl?: string;
+  /** Present before playlist items have been fetched. */
+  total?: number;
+  tracksLoaded?: boolean;
+  unavailable?: boolean;
+  ownerId?: string;
+  collaborative?: boolean;
 };
 
 export type MusicLibrary = {
@@ -63,6 +69,10 @@ export type MusicProvider = {
   getArtistTracks: (library: MusicLibrary, id: string) => Promise<Track[]>;
   resolvePlayback: (track: Track) => Promise<PlaybackSource | null>;
   connectionStatus?: () => ProviderConnection["status"];
+  readConnection?: () => ProviderConnection;
+  saveClientId?: (clientId: string) => void;
+  cachedLibrary?: () => MusicLibrary | null;
+  ensurePlaylist?: (library: MusicLibrary, id: string) => Promise<MusicLibrary>;
   connect?: () => Promise<ProviderConnection>;
   disconnect?: () => Promise<void>;
   refresh?: () => Promise<MusicLibrary>;

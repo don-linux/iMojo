@@ -1,0 +1,124 @@
+.connection-page {
+  box-sizing: border-box;
+  min-height: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 32px 20px 64px;
+  background: #f4f4f6;
+  color: #1c1c1e;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.connection-page *,
+.connection-page *::before,
+.connection-page *::after {
+  box-sizing: border-box;
+}
+
+.connection-sheet {
+  width: min(40rem, 100%);
+  margin: 0 auto;
+}
+
+.connection-page h1 {
+  margin: 0 0 8px;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.connection-page h2 {
+  margin: 32px 0 8px;
+  font-size: 1.25rem;
+}
+
+.connection-lead,
+.connection-page p,
+.connection-page li {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.connection-lead {
+  margin-top: 0;
+  color: #3a3a3c;
+}
+
+.connection-page ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.connection-page li + li {
+  margin-top: 8px;
+}
+
+.connection-uri {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.connection-uri code {
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+}
+
+.connection-uri button,
+.connection-back {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #1c1c1e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.connection-note {
+  margin-top: 28px;
+  padding-top: 8px;
+  color: #3a3a3c;
+}
+
+.connection-status {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 24px;
+  background: #f4f4f6;
+  color: #1c1c1e;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .connection-page,
+  .connection-status {
+    background: #1c1c1e;
+    color: #f4f4f6;
+  }
+
+  .connection-lead,
+  .connection-note {
+    color: #d1d1d6;
+  }
+
+  .connection-uri {
+    background: #2c2c2e;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+
+  .connection-uri button,
+  .connection-back {
+    background: #f4f4f6;
+    color: #1c1c1e;
+  }
+}

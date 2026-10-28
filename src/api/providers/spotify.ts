@@ -1,71 +1,87 @@
-import { artistTracks, playlistTracks } from "../selectors.ts";
-import type { MusicProvider, ProviderConnection } from "../types.ts";
+import type { MusicLibrary, MusicProvider, ProviderConnection, Track } from "../types.ts";
+import { beginLogin } from "../spotify/auth.ts";
+import { SpotifySessionError } from "../spotify/api.ts";
+import {
+  cachedSpotifyLibrary,
+  emptySpotifyLibrary,
+  fetchPlaylistTracks,
+  fetchSpotifyLibrary,
+} from "../spotify/library.ts";
+import {
+  disconnectSpotify,
+  readClientId,
+  readProfile,
+  readTokens,
+  writeClientId,
+} from "../spotify/storage.ts";
 
-export const spotifyConfig = {
-  clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID ?? "",
-  redirectUri: import.meta.env.VITE_SPOTIFY_REDIRECT_URI ?? "",
-  bffUrl: import.meta.env.VITE_SPOTIFY_BFF_URL ?? "",
-};
-
-export function isSpotifyConfigured() {
-  return Boolean(spotifyConfig.bffUrl || spotifyConfig.clientId);
-}
-
-function setupMessage() {
-  return "Configure VITE_SPOTIFY_BFF_URL or VITE_SPOTIFY_CLIENT_ID";
+function connection(): ProviderConnection {
+  if (!readClientId()) return { status: "setup", account: null, error: null };
+  const profile = readProfile();
+  if (!readTokens()) return { status: "disconnected", account: profile?.name ?? null, error: null };
+  return { status: "connected", account: profile?.name ?? null, error: null };
 }
 
 export const spotifyProvider: MusicProvider = {
   id: "spotify",
   connectionStatus() {
-    return isSpotifyConfigured() ? "disconnected" : "setup";
+    return connection().status;
+  },
+  readConnection() {
+    return connection();
+  },
+  saveClientId(clientId: string) {
+    writeClientId(clientId);
+  },
+  cachedLibrary() {
+    return cachedSpotifyLibrary();
   },
   async loadLibrary() {
-    if (!isSpotifyConfigured()) throw new Error(setupMessage());
-    // TODO: exchange the OAuth code through the BFF/JWK endpoint, then call:
-    // GET /me/tracks?limit=50&offset=...
-    // GET /me/playlists?limit=50&offset=...
-    // GET /me/following?type=artist&limit=50&after=...
-    // Pagination follows `next`; 429 responses honor `Retry-After`.
-    throw new Error("Spotify authorization is not implemented yet");
+    if (!readClientId() || !readTokens()) return emptySpotifyLibrary();
+    return fetchSpotifyLibrary();
+  },
+  async ensurePlaylist(library: MusicLibrary, id: string) {
+    return fetchPlaylistTracks(library, id);
   },
   async getPlaylistTracks(library, id) {
-    const playlist = library.playlists.find((entry) => entry.id === id);
-    if (!playlist) {
-      // TODO: GET /playlists/{id}/tracks?limit=100&offset=...
-      return [];
-    }
-    return playlistTracks(library, playlist);
+    const next = await fetchPlaylistTracks(library, id);
+    const playlist = next.playlists.find((entry) => entry.id === id);
+    if (!playlist) return [];
+    return playlist.trackIds
+      .map((trackId) => next.tracks[trackId])
+      .filter((track): track is Track => Boolean(track));
   },
   async getArtistTracks(library, id) {
     const artist = library.artists.find((entry) => entry.id === id);
-    if (!artist) {
-      // TODO: GET /artists/{id}/top-tracks?market=...
-      return [];
-    }
-    return artistTracks(library, artist);
+    if (!artist) return [];
+    return artist.trackIds
+      .map((trackId) => library.tracks[trackId])
+      .filter((track): track is Track => Boolean(track));
   },
   async resolvePlayback(track) {
-    if (track.previewUrl) return { url: track.previewUrl, kind: "preview" };
-    // TODO: full playback uses the Web Playback SDK with the `streaming` scope
-    // and a Spotify Premium account. Preview URLs may be absent.
-    return null;
+    if (!track.id) return null;
+    return { url: `spotify:track:${track.id}`, kind: "full" };
   },
-  async connect(): Promise<ProviderConnection> {
-    if (!isSpotifyConfigured()) {
-      return { status: "setup", account: null, error: setupMessage() };
+  async connect() {
+    if (!readClientId()) {
+      return { status: "setup", account: null, error: "Paste your Client ID first" };
     }
-    // TODO: redirect to the BFF PKCE authorize endpoint. The browser must not
-    // hold the client secret. Store the verifier in sessionStorage and clear it
-    // after the callback.
-    return {
-      status: "error",
-      account: null,
-      error: "Spotify authorization is not implemented yet",
-    };
+    try {
+      await beginLogin();
+      return connection();
+    } catch (reason) {
+      if (reason instanceof SpotifySessionError) {
+        return { status: "error", account: readProfile()?.name ?? null, error: reason.message };
+      }
+      return {
+        status: "error",
+        account: null,
+        error: reason instanceof Error ? reason.message : "Spotify sign-in failed",
+      };
+    }
   },
   async disconnect() {
-    // TODO: revoke the BFF session and clear any local connection state.
+    disconnectSpotify();
   },
   async refresh() {
     return this.loadLibrary();

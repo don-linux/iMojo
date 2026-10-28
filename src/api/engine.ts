@@ -9,7 +9,7 @@ export type EngineEventMap = {
   play: () => void;
   pause: () => void;
   ended: () => void;
-  error: () => void;
+  error: (message?: string) => void;
   /** The crossfaded-in channel became the displayed track. */
   advance: (clock: PlaybackClock) => void;
   /** The cued track took over playback. The display still lags until `advance`. */

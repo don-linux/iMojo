@@ -9,8 +9,8 @@ const providers: Record<ProviderId, MusicProvider> = {
 
 export function providerIdFromEnv(): ProviderId {
   const value = import.meta.env.VITE_MUSIC_PROVIDER;
-  if (value === "spotify") return "spotify";
-  return "none";
+  if (value === "none") return "none";
+  return "spotify";
 }
 
 export function createProvider(id: ProviderId = providerIdFromEnv()): MusicProvider {

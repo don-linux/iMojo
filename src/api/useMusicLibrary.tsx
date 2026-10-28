@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createProvider, providerIdFromEnv, providerLabel } from "./provider.ts";
 import { emptyLibrary } from "./providers/none.ts";
+import { emptySpotifyLibrary } from "./spotify/library.ts";
+import { SpotifySessionError } from "./spotify/api.ts";
 import type {
   LoadStatus,
   MusicLibrary,
@@ -19,13 +21,19 @@ export type MusicLibraryState = {
   reload: () => Promise<void>;
   connectProvider: () => Promise<void>;
   disconnectProvider: () => Promise<void>;
+  saveClientId: (clientId: string) => void;
+  loadPlaylist: (id: string) => Promise<void>;
   resolvePlayback: (track: Track) => Promise<PlaybackSource | null>;
 };
 
 function initialConnection(provider: ReturnType<typeof createProvider>): ProviderConnection {
-  const status = provider.connectionStatus?.();
-  if (status) return { status, account: null, error: null };
-  return { status: provider.connect ? "disconnected" : "setup", account: null, error: null };
+  return (
+    provider.readConnection?.() ?? {
+      status: provider.connectionStatus?.() ?? (provider.connect ? "disconnected" : "setup"),
+      account: null,
+      error: null,
+    }
+  );
 }
 
 export function useMusicLibrary(): MusicLibraryState {
@@ -37,23 +45,45 @@ export function useMusicLibrary(): MusicLibraryState {
   const [connection, setConnection] = useState<ProviderConnection>(() =>
     initialConnection(provider),
   );
+  const libraryRef = useRef(library);
+  libraryRef.current = library;
 
   const reload = useCallback(async () => {
+    const snapshot = provider.readConnection?.();
+    if (snapshot && (snapshot.status === "setup" || snapshot.status === "disconnected")) {
+      setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      setStatus("ready");
+      setError(null);
+      setConnection(snapshot);
+      return;
+    }
+    const cached = provider.cachedLibrary?.() ?? null;
+    if (cached) setLibrary(cached);
     setStatus("loading");
     setError(null);
     try {
       const next = await provider.loadLibrary();
       setLibrary(next);
       setStatus("ready");
-      if (provider.connect) {
-        setConnection((current) => ({ ...current, status: "connected", error: null }));
-      }
+      setConnection(
+        provider.readConnection?.() ?? { status: "connected", account: null, error: null },
+      );
     } catch (reason) {
-      setLibrary(emptyLibrary);
-      setStatus("error");
-      setError(reason instanceof Error ? reason.message : "Unable to load the music library");
+      const nextConnection = provider.readConnection?.();
+      if (reason instanceof SpotifySessionError && nextConnection) {
+        setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+        setStatus("ready");
+        setError(null);
+        setConnection({ ...nextConnection, status: "error", error: reason.message });
+        return;
+      }
+      if (!cached) setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      setStatus(cached ? "ready" : "error");
+      const message = reason instanceof Error ? reason.message : "Unable to load the music library";
+      setError(cached ? null : message);
+      if (cached && nextConnection) setConnection({ ...nextConnection, error: message });
     }
-  }, [provider]);
+  }, [provider, providerId]);
 
   useEffect(() => {
     void reload();
@@ -86,15 +116,41 @@ export function useMusicLibrary(): MusicLibraryState {
     try {
       await provider.disconnect?.();
     } finally {
-      const status = provider.connectionStatus?.() ?? "setup";
-      setConnection({ status, account: null, error: null });
-      if (providerId === "spotify") {
-        setLibrary(emptyLibrary);
-        setStatus("ready");
-        setError(null);
-      }
+      setConnection(provider.readConnection?.() ?? { status: "setup", account: null, error: null });
+      setLibrary(providerId === "spotify" ? emptySpotifyLibrary() : emptyLibrary);
+      setStatus("ready");
+      setError(null);
     }
   }, [provider, providerId]);
+
+  const saveClientId = useCallback(
+    (clientId: string) => {
+      provider.saveClientId?.(clientId);
+      setConnection(
+        provider.readConnection?.() ?? { status: "disconnected", account: null, error: null },
+      );
+      setError(null);
+    },
+    [provider],
+  );
+
+  const loadPlaylist = useCallback(
+    async (id: string) => {
+      if (!provider.ensurePlaylist) return;
+      const current = libraryRef.current.playlists.find((playlist) => playlist.id === id);
+      if (!current || current.tracksLoaded || current.unavailable) return;
+      try {
+        const next = await provider.ensurePlaylist(libraryRef.current, id);
+        setLibrary(next);
+      } catch (reason) {
+        setConnection((existing) => ({
+          ...existing,
+          error: reason instanceof Error ? reason.message : "Unable to load the playlist",
+        }));
+      }
+    },
+    [provider],
+  );
 
   return {
     library,
@@ -106,6 +162,8 @@ export function useMusicLibrary(): MusicLibraryState {
     reload,
     connectProvider,
     disconnectProvider,
+    saveClientId,
+    loadPlaylist,
     resolvePlayback: provider.resolvePlayback,
   };
 }

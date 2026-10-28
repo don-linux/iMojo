@@ -254,11 +254,11 @@ export function usePlayer(options: PlayerOptions): Player {
       playingRef.current = false;
       setPlaying(false);
     });
-    const unsubscribeError = engine.on("error", () => {
+    const unsubscribeError = engine.on("error", (message) => {
       playingRef.current = false;
       loadingRef.current = false;
       setPlaying(false);
-      setError("This track cannot be played");
+      setError(message ?? "This track cannot be played");
     });
     const unsubscribeEnded = engine.on("ended", () => finishQueue());
     const unsubscribeHandoff = engine.on("handoff", () => {
@@ -399,7 +399,23 @@ export function usePlayer(options: PlayerOptions): Player {
         setLoading(false);
         return;
       }
-      await engine.load(source.url);
+      try {
+        await engine.load(source.url);
+      } catch (reason) {
+        if (request !== requestRef.current) return;
+        loadedRef.current = false;
+        loadingRef.current = false;
+        playingRef.current = false;
+        setHasLoaded(false);
+        setLoading(false);
+        setPlaying(false);
+        setError(
+          reason instanceof Error && reason.message
+            ? reason.message
+            : "This track cannot be played",
+        );
+        return;
+      }
       if (request !== requestRef.current) return;
       engine.setVolume(volumeRef.current);
       loadedRef.current = true;
@@ -413,11 +429,15 @@ export function usePlayer(options: PlayerOptions): Player {
           if (request !== requestRef.current) return;
           playingRef.current = true;
           setPlaying(true);
-        } catch {
+        } catch (reason) {
           if (request !== requestRef.current) return;
           playingRef.current = false;
           setPlaying(false);
-          setError("This track cannot be played");
+          setError(
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "This track cannot be played",
+          );
           return;
         }
       }
@@ -496,10 +516,14 @@ export function usePlayer(options: PlayerOptions): Player {
     // keeps the item loaded while the next channel is still being prepared.
     if (loadedRef.current && engine && track && !finishedRef.current) {
       if (engine.isPaused()) {
-        void engine.play().catch(() => {
+        void engine.play().catch((reason: unknown) => {
           playingRef.current = false;
           setPlaying(false);
-          setError("This track cannot be played");
+          setError(
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "This track cannot be played",
+          );
         });
       } else {
         engine.pause();

@@ -11,14 +11,14 @@ npm install
 npm run dev
 ```
 
-Abre [http://localhost:4731](http://localhost:4731).
+Abre [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 ## Cómo se usa
 
 - Arrastra el anillo en círculo. Cada 15° baja o sube una fila. Si giras rápido, salta varias.
 - MENU vuelve atrás. El centro elige.
-- Playlists, Artists y Songs están vacíos: dicen No Music.
-- En Settings están About, Shuffle, Repeat, Backlight Timer, Clicker y Reset All Settings.
+- Playlists, Artists y Songs dicen No Music hasta que conectas Spotify.
+- En Settings están About, Shuffle, Repeat, Backlight Timer, Clicker, Reset All Settings y Spotify.
 - En About, mantén el centro 5 segundos para abrir Brick. La rueda mueve la paleta.
 - Flechas, Enter, espacio y Escape también sirven. Izquierda o Escape vuelven; derecha o Enter eligen.
 - Las preferencias se guardan en este navegador.
