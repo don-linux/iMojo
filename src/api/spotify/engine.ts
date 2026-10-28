@@ -51,10 +51,41 @@ declare global {
 
 const EMPTY_CLOCK: PlaybackClock = { currentTime: 0, duration: 0 };
 
+const CONNECT_TIMEOUT_MS = 15_000;
+
 function premiumMessage() {
   const product = readProfile()?.product;
   if (product && product !== "premium") return "Spotify Premium is required to play";
   return null;
+}
+
+function isScopeWarning(message: string) {
+  return /scope/i.test(message);
+}
+
+function errorText(reason: unknown, fallback: string) {
+  return reason instanceof Error && reason.message ? reason.message : fallback;
+}
+
+function waitForSdk() {
+  let timer = 0;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(
+      () => reject(new Error("Spotify player did not load")),
+      CONNECT_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([loadSdk(), timeout]).finally(() => window.clearTimeout(timer));
+}
+
+function resetSpotifySdk() {
+  document.querySelectorAll?.('iframe[src^="https://sdk.scdn.co/"]')?.forEach((frame) => {
+    frame.remove();
+  });
+  document.querySelector("script[data-spotify-sdk]")?.remove();
+  const sdkWindow = window as Window & { Spotify?: SpotifySdk };
+  delete sdkWindow.Spotify;
+  delete sdkWindow.onSpotifyWebPlaybackSDKReady;
 }
 
 function loadSdk() {
@@ -92,6 +123,13 @@ export function warmSpotifyPlayer() {
 export class SpotifySdkEngine implements PlaybackEngine {
   private player: SpotifyPlayer | null = null;
   private connecting: Promise<void> | null = null;
+  private settleConnect: ((error?: Error) => void) | null = null;
+  private connectTimer = 0;
+  private sdkMessage: string | null = null;
+  private sdkToken = "";
+  private sdkTokenHanded = false;
+  private wantsActivation = false;
+  private destroyed = false;
   private deviceId = "";
   private uri = "";
   private nextUri: string | null = null;
@@ -125,57 +163,167 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   prime() {
-    void this.player?.activateElement();
+    this.wantsActivation = true;
+    void (this.player ?? this.createPlayer())?.activateElement();
   }
 
   warm() {
-    void this.ensurePlayer();
+    void loadSdk();
   }
 
-  private async ensurePlayer() {
-    if (!this.connecting) {
-      this.connecting = this.connectPlayer().catch((reason: unknown) => {
-        this.connecting = null;
-        throw reason;
-      });
-    }
-    await this.connecting;
-  }
-
-  private async connectPlayer() {
-    await loadSdk();
+  private createPlayer() {
+    if (this.player || this.destroyed) return this.player;
     const sdk = window.Spotify;
-    if (!sdk) throw new Error("Spotify player did not load");
+    if (!sdk) return null;
     const player = new sdk.Player({
       name: "iPod",
       volume: this.volume,
-      getOAuthToken: (callback) => {
-        void getAccessToken()
-          .then(callback)
-          .catch(() => callback(""));
-      },
+      getOAuthToken: (callback) => this.deliverToken(callback),
     });
     this.player = player;
-    const ready = new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(
-        () => reject(new Error("Spotify player did not connect")),
-        15000,
-      );
-      player.addListener("ready", ({ device_id }) => {
-        window.clearTimeout(timer);
-        this.deviceId = device_id;
-        resolve();
-      });
+    player.addListener("ready", ({ device_id }) => {
+      if (this.player !== player) return;
+      this.deviceId = device_id;
+      this.finishConnect();
     });
-    player.addListener("player_state_changed", (state) => this.onState(state));
-    player.addListener("account_error", () => this.fail("Spotify Premium is required to play"));
-    player.addListener("authentication_error", ({ message }) => this.fail(message));
-    player.addListener("initialization_error", ({ message }) => this.fail(message));
-    player.addListener("playback_error", ({ message }) => this.fail(message));
-    const connected = await player.connect();
-    if (!connected) throw new Error("Spotify player did not connect");
-    await ready;
-    this.frame = requestAnimationFrame(this.tick);
+    player.addListener("not_ready", () => {
+      if (this.player !== player || !this.deviceId) return;
+      this.deviceId = "";
+    });
+    player.addListener("account_error", () => {
+      if (this.player !== player) return;
+      this.rejectConnect("Spotify Premium is required to play");
+    });
+    player.addListener("initialization_error", ({ message }) => {
+      if (this.player !== player) return;
+      this.rejectConnect(message || "Failed to initialize player");
+    });
+    player.addListener("authentication_error", ({ message }) => {
+      if (this.player !== player) return;
+      const text = message || "Authentication failed";
+      // A scope warning can arrive before `ready`. Keep waiting for the device.
+      if (this.settleConnect && isScopeWarning(text)) {
+        this.sdkMessage = text;
+        return;
+      }
+      this.rejectConnect(text);
+    });
+    player.addListener("playback_error", ({ message }) => {
+      if (this.player !== player) return;
+      this.fail(message);
+    });
+    player.addListener("player_state_changed", (state) => {
+      if (this.player !== player) return;
+      this.onState(state);
+    });
+    return player;
+  }
+
+  private deliverToken(callback: (token: string) => void) {
+    // The SDK asks again on every auth retry and rejects a repeated access token.
+    if (!this.sdkTokenHanded && this.sdkToken) {
+      this.sdkTokenHanded = true;
+      callback(this.sdkToken);
+      return;
+    }
+    this.sdkTokenHanded = true;
+    void getAccessToken(true)
+      .then((token) => {
+        this.sdkToken = token;
+        callback(token);
+      })
+      .catch((reason: unknown) => {
+        this.rejectConnect(errorText(reason, "Connect Spotify to play"));
+      });
+  }
+
+  private async ensurePlayer() {
+    if (this.destroyed) return;
+    if (this.player && this.deviceId) return;
+    const current = this.connecting;
+    if (current) {
+      await current;
+      if (this.destroyed) return;
+      if (this.player && this.deviceId) return;
+      if (this.connecting && this.connecting !== current) {
+        await this.connecting;
+        return;
+      }
+    }
+    if (this.player && !this.deviceId && current) {
+      this.player.disconnect();
+      this.player = null;
+    }
+    const attempt = this.connectPlayer();
+    this.connecting = attempt;
+    try {
+      await attempt;
+      if (this.destroyed) return;
+    } catch (reason) {
+      if (this.connecting === attempt) this.connecting = null;
+      this.deviceId = "";
+      this.finishConnect();
+      this.player?.disconnect();
+      this.player = null;
+      this.sdkToken = "";
+      this.sdkTokenHanded = false;
+      if (!this.destroyed) resetSpotifySdk();
+      const message = errorText(reason, "Spotify player did not connect");
+      this.fail(message);
+      throw reason instanceof Error ? reason : new Error(message);
+    }
+  }
+
+  private async connectPlayer() {
+    await waitForSdk();
+    if (this.destroyed || activeEngine !== this) return;
+    this.sdkToken = await getAccessToken();
+    this.sdkTokenHanded = false;
+    if (this.destroyed || activeEngine !== this) return;
+    const player = this.createPlayer();
+    if (!player) throw new Error("Spotify player did not load");
+    if (this.wantsActivation) void player.activateElement();
+    if (this.deviceId) return;
+
+    this.sdkMessage = null;
+    await new Promise<void>((resolve, reject) => {
+      const settle = (error?: Error) => {
+        if (this.settleConnect !== settle) return;
+        this.settleConnect = null;
+        if (this.connectTimer) {
+          window.clearTimeout(this.connectTimer);
+          this.connectTimer = 0;
+        }
+        if (error) {
+          this.fail(error.message);
+          reject(error);
+          return;
+        }
+        this.sdkMessage = null;
+        resolve();
+      };
+      this.settleConnect = settle;
+      this.connectTimer = window.setTimeout(() => {
+        settle(new Error(this.sdkMessage ?? "Spotify player did not connect"));
+      }, CONNECT_TIMEOUT_MS);
+      // `connect()` can resolve false before `ready`. The device id from `ready` is what matters.
+      void player.connect().then(
+        () => undefined,
+        () => undefined,
+      );
+    });
+
+    if (this.destroyed || activeEngine !== this) return;
+    if (!this.frame) this.frame = requestAnimationFrame(this.tick);
+  }
+
+  private rejectConnect(message: string) {
+    if (this.settleConnect) this.finishConnect(new Error(message));
+    else this.fail(message);
+  }
+
+  private finishConnect(error?: Error) {
+    this.settleConnect?.(error);
   }
 
   private fail(message: string) {
@@ -228,12 +376,11 @@ export class SpotifySdkEngine implements PlaybackEngine {
     const blocked = premiumMessage();
     if (blocked) throw new Error(blocked);
     await this.ensurePlayer();
+    if (this.destroyed) return;
+    this.prime();
+    if (!this.deviceId) throw new Error(this.sdkMessage ?? "Spotify player did not connect");
     const access = await getAccessToken();
     try {
-      await spotifySend("PUT", "https://api.spotify.com/v1/me/player", access, {
-        device_ids: [this.deviceId],
-        play: false,
-      });
       await spotifySend(
         "PUT",
         `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(this.deviceId)}`,
@@ -293,6 +440,7 @@ export class SpotifySdkEngine implements PlaybackEngine {
       throw new Error(blocked);
     }
     await this.ensurePlayer();
+    if (this.destroyed) return;
     this.emit("loaded", this.clock);
   }
 
@@ -310,6 +458,7 @@ export class SpotifySdkEngine implements PlaybackEngine {
     const blocked = premiumMessage();
     if (blocked) throw new Error(blocked);
     await this.ensurePlayer();
+    if (this.destroyed) return;
     const state = await this.player?.getCurrentState();
     if (state?.track_window.current_track?.uri === this.uri && state.paused) {
       await this.player?.resume();
@@ -366,9 +515,14 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   destroy() {
+    this.destroyed = true;
     if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.finishConnect();
+    this.deviceId = "";
     this.player?.disconnect();
     this.player = null;
+    this.connecting = null;
     if (activeEngine === this) setActiveEngine(null);
     for (const set of Object.values(this.listeners)) set.clear();
   }
