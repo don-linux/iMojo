@@ -1,0 +1,254 @@
+.now-playing {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 180px;
+  margin-top: 1.7px;
+  padding: 4px 15px 7px;
+  overflow: hidden;
+  overflow: clip;
+  opacity: var(--ipod-screen-opacity, 1);
+}
+
+.now-playing-index {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 20px;
+  line-height: 1;
+  text-align: left;
+  direction: ltr;
+}
+
+.now-playing-index > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing-index:dir(rtl) {
+  text-align: right;
+}
+
+.play-modifier {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  fill: #484647;
+}
+
+.now-playing-info {
+  margin-bottom: 5px;
+  text-align: center;
+}
+
+.song-title {
+  margin-bottom: 2px;
+}
+
+.song-title-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.song-title-link:hover,
+.song-title-link:focus-visible {
+  text-decoration: underline;
+}
+
+.artist,
+.album {
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing-error {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.now-playing-progress {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  align-items: center;
+  width: calc(200% + 30px);
+  margin-top: auto;
+  transition: transform 0.3s ease-out;
+}
+
+.now-playing-progress[data-mode="volume"],
+.now-playing-progress[data-mode="scrubbing"] {
+  transform: translateX(calc(-50% - 15px));
+}
+
+.now-playing-progress[data-mode="volume"]:dir(rtl),
+.now-playing-progress[data-mode="scrubbing"]:dir(rtl) {
+  transform: translateX(calc(50% + 15px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-playing-progress {
+    transition: none;
+  }
+}
+
+.time-and-progress,
+.scrubbing-indicator,
+.volume-labels {
+  direction: ltr;
+}
+
+.scrubbing-indicator,
+.volume-labels {
+  grid-area: 1 / 2;
+}
+
+.scrubbing-indicator.inactive,
+.volume-labels.inactive {
+  opacity: 0;
+}
+
+.time-and-progress,
+.scrubbing-indicator {
+  padding-top: 10px;
+}
+
+.progress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 26px;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+.volume-labels {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 7px;
+  align-items: center;
+  fill: #484647;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.progress-bar {
+  position: relative;
+  width: 100%;
+  height: 15px;
+  min-height: 12px;
+  overflow: hidden;
+  border: 1.5px solid #484647;
+  border-radius: 7px;
+  direction: ltr;
+}
+
+.progress-bar:has(.progress-marker) {
+  overflow: visible;
+}
+
+.progress-bar:has(.range-input:focus-visible) {
+  outline: 2px solid currentcolor;
+  outline-offset: 2px;
+}
+
+.progress-fill {
+  width: 0%;
+  height: 15px;
+  background: #484647;
+}
+
+.progress-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: #484647;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.range-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+}
+
+.marquee {
+  overflow: hidden;
+}
+
+.marquee-track {
+  --marquee-distance: calc(var(--marquee-copy-width, 0) + 30);
+  --marquee-direction: -1;
+  display: flex;
+  width: max-content;
+  /* 30px gap must equal the + 30 in --marquee-distance. */
+  gap: 30px;
+  margin-inline: auto;
+}
+
+.marquee:dir(rtl) .marquee-track {
+  --marquee-direction: 1;
+}
+
+.marquee-copy {
+  white-space: nowrap;
+}
+
+.marquee.scrolling .marquee-track {
+  animation: marquee-scroll calc(var(--marquee-distance) * 0.05s) linear 2s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    display: block;
+    width: auto;
+  }
+
+  .marquee.scrolling .marquee-track {
+    animation: none;
+  }
+
+  .marquee-copy {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .marquee-copy[aria-hidden] {
+    display: none;
+  }
+}
+
+@keyframes marquee-scroll {
+  to {
+    transform: translateX(calc(var(--marquee-distance) * var(--marquee-direction) * 1px));
+  }
+}
+
+.now-playing-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}

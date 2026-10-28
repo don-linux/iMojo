@@ -1,0 +1,52 @@
+@font-face {
+  font-family: "ChicagoKare";
+  src: url("../assets/chicago-kare.woff2") format("woff2");
+  font-display: block;
+}
+
+.ipod,
+.ipod *,
+.ipod *::before,
+.ipod *::after {
+  box-sizing: border-box;
+}
+
+.page {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 8px)
+    calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  container: stage / size;
+}
+
+.slot {
+  --design-w: 427;
+  --design-h: 704;
+  position: relative;
+  width: min(100cqi, calc(100cqb * var(--design-w) / var(--design-h)));
+  height: min(100cqb, calc(100cqi * var(--design-h) / var(--design-w)));
+  container: fit / inline-size;
+}
+
+.device {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: 427px;
+  height: 704px;
+  padding-top: 6px;
+  /* tan(atan2()) is a unitless ratio where Safari < 26 and Firefox < 158 drop typed calc() division. */
+  transform: scale(tan(atan2(100cqi, 427px)));
+  transform: scale(calc(100cqi / 427px));
+  transform-origin: top left;
+}
