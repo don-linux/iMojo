@@ -7,8 +7,7 @@ import {
   TOKENS,
   type BacklightSeed,
 } from "./library.ts";
-
-const SPOTIFY = /https?:\/\/([^/?#]+\.)?(spotify\.com|scdn\.co)(?::\d+)?(?:[/?#]|$)/;
+import { stubSpotify } from "./sdkStub.ts";
 
 const SHOT = {
   maxDiffPixels: 0,
@@ -27,39 +26,8 @@ export type BootOptions = {
   pauseClock?: boolean;
 };
 
-// A Web Playback SDK stand-in that connects but never reports a device, so playback stays pending
-// (no error copy) for longer than any screenshot takes, in every version of the app.
-const SDK_STUB = `
-(() => {
-  class Player {
-    constructor() {}
-    addListener() { return true; }
-    removeListener() { return true; }
-    connect() { return Promise.resolve(true); }
-    disconnect() {}
-    activateElement() { return Promise.resolve(); }
-    getCurrentState() { return Promise.resolve(null); }
-    setVolume() { return Promise.resolve(); }
-    getVolume() { return Promise.resolve(1); }
-    pause() { return Promise.resolve(); }
-    resume() { return Promise.resolve(); }
-    togglePlay() { return Promise.resolve(); }
-    seek() { return Promise.resolve(); }
-    previousTrack() { return Promise.resolve(); }
-    nextTrack() { return Promise.resolve(); }
-  }
-  window.Spotify = { Player };
-  window.onSpotifyWebPlaybackSDKReady?.();
-})();
-`;
-
 export async function boot(page: Page, options: BootOptions) {
-  await page.route(SPOTIFY, (route) => {
-    if (route.request().url().includes("sdk.scdn.co/spotify-player.js")) {
-      return route.fulfill({ status: 200, contentType: "text/javascript", body: SDK_STUB });
-    }
-    return route.abort();
-  });
+  await stubSpotify(page);
   await page.addInitScript(
     (data) => {
       localStorage.setItem("ipod-settings", JSON.stringify(data.settings));

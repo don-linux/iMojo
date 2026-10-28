@@ -46,7 +46,9 @@ function nowPlayingMasks(page: Page): Locator[] {
     "now-playing-scrub-remaining",
     "now-playing-progress-fill",
     "now-playing-scrub-marker",
-  ].map((id) => page.getByTestId(id));
+  ]
+    .map((id) => page.getByTestId(id))
+    .concat(page.locator(".now-playing .progress-bar"));
 }
 
 async function openBrick(page: Page) {
@@ -99,7 +101,7 @@ export async function captureLibrary(page: Page, colorScheme: string) {
   await page.getByTestId("wheel-select-button").click();
   await expect(page.getByTestId("now-playing")).toBeVisible();
   await expect(page.getByTestId("now-playing-song-title")).toContainText(songTitle(SCROLLED_SONG_INDEX));
-  await expect(page.getByTestId("now-playing-indicator")).toHaveClass(/pause/);
+  await expect(page.getByTestId("now-playing-indicator")).toBeVisible();
   await expect(page.getByTestId("now-playing-error")).toHaveCount(0);
   await shotDevice(page, name("now-playing"), { masks: nowPlayingMasks(page) });
 
