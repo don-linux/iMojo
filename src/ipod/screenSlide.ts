@@ -18,6 +18,42 @@ type Motion = {
 
 const intros = new WeakMap<HTMLElement, Motion>();
 const queues = new WeakMap<HTMLElement, Map<number, Motion[]>>();
+const running = new Set<Motion>();
+let visibilityListening = false;
+
+function onDocumentHidden() {
+  if (!document.hidden) return;
+  for (const motion of Array.from(running)) finishHidden(motion);
+}
+
+function watch(motion: Motion) {
+  running.add(motion);
+  if (!visibilityListening) {
+    document.addEventListener("visibilitychange", onDocumentHidden);
+    visibilityListening = true;
+  }
+  // rAF does not run while hidden. Defer so this turn can still hand an outro to its intro.
+  if (document.hidden) {
+    queueMicrotask(() => {
+      if (document.hidden) finishHidden(motion);
+    });
+  }
+}
+
+function unwatch(motion: Motion) {
+  running.delete(motion);
+  if (running.size === 0 && visibilityListening) {
+    document.removeEventListener("visibilitychange", onDocumentHidden);
+    visibilityListening = false;
+  }
+}
+
+function finishHidden(motion: Motion) {
+  if (!running.has(motion)) return;
+  motion.duration = 0;
+  if (motion.node) paint(motion.node, motion, 1);
+  finish(motion);
+}
 
 function cosineInOut(t: number) {
   return -0.5 * (Math.cos(Math.PI * t) - 1);
@@ -46,7 +82,9 @@ function queueFor(parent: HTMLElement, sign: number) {
 }
 
 function halt(motion: Motion | undefined) {
-  if (!motion?.frame) return;
+  if (!motion) return;
+  unwatch(motion);
+  if (motion.frame === undefined) return;
   window.cancelAnimationFrame(motion.frame);
   motion.frame = undefined;
 }
@@ -76,14 +114,20 @@ function paint(node: HTMLElement, motion: Motion, t: number) {
 }
 
 function finish(motion: Motion) {
-  motion.frame = undefined;
-  motion.onEnd?.();
+  unwatch(motion);
+  if (motion.frame !== undefined) {
+    window.cancelAnimationFrame(motion.frame);
+    motion.frame = undefined;
+  }
+  const onEnd = motion.onEnd;
   motion.onEnd = undefined;
+  onEnd?.();
 }
 
 function start(motion: Motion) {
   const node = motion.node;
   if (!node) return;
+  watch(motion);
   if (motion.duration <= 0) {
     paint(node, motion, 1);
     motion.frame = window.requestAnimationFrame(() => finish(motion));
@@ -91,6 +135,7 @@ function start(motion: Motion) {
   }
   paint(node, motion, 0);
   const step = () => {
+    if (!running.has(motion)) return;
     const t = (performance.now() - motion.startedAt) / motion.duration;
     if (t >= 1) {
       paint(node, motion, 1);
@@ -127,8 +172,26 @@ export function beginSlide(
   if (reducedMotion() || width === 0) {
     node.style.transform = "";
     if (!onEnd) return { stolen: null, cancel: () => {} };
-    const frame = window.requestAnimationFrame(onEnd);
-    return { stolen: null, cancel: () => window.cancelAnimationFrame(frame) };
+    let frame = 0;
+    let stopped = false;
+    const onHide = () => {
+      if (document.hidden) end();
+    };
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+    const end = () => {
+      if (stopped) return;
+      stop();
+      onEnd();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    frame = window.requestAnimationFrame(end);
+    if (document.hidden) queueMicrotask(end);
+    return { stolen: null, cancel: stop };
   }
 
   const rtl = node.matches(":dir(rtl)");
