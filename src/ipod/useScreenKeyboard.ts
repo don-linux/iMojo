@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
-import { unlockClick } from "../click.ts";
-import type { Frame } from "../menus.ts";
+import { unlockClick } from "../audio/clickPlayer.ts";
+import type { Frame } from "../menus/types.ts";
 import { MENU_HOLD_MS, type Overlay } from "./model.ts";
 import { navigationKey, screenKeyActionFor } from "./screenKeys.ts";
 import { useDocumentVisible } from "./useDocumentVisible.ts";

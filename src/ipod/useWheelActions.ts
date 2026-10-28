@@ -1,10 +1,12 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
-import { movePaddle, setSteer, type BrickGame } from "../brick.ts";
-import { playClick, unlockClick } from "../click.ts";
-import type { Frame, MenuData, Settings } from "../menus.ts";
+import { movePaddle, type BrickGame } from "../brick/geom.ts";
+import { setSteer } from "../brick/sim.ts";
+import { playClick, unlockClick } from "../audio/clickPlayer.ts";
+import type { Settings } from "../menus/model.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import { VOLUME_KEY_STEP } from "./playbackTiming.ts";
 import type { NowPlayingControls } from "./nowPlayingControls.ts";
-import type { Player } from "../api/player.ts";
+import type { Player } from "../api/player/types.ts";
 import type { Overlay } from "./model.ts";
 import { createLatestSeek, stepHoldSeek, type LatestSeek } from "./holdSeek.ts";
 import { useDocumentVisible } from "./useDocumentVisible.ts";

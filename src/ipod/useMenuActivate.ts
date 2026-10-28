@@ -1,12 +1,12 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { launch, type BrickGame } from "../brick.ts";
-import { unlockClick } from "../click.ts";
-import type { Player } from "../api/player.ts";
-import { primeSpotifyPlayback } from "../api/spotify/engine.ts";
+import { launch, type BrickGame } from "../brick/geom.ts";
+import { unlockClick } from "../audio/clickPlayer.ts";
+import type { Player } from "../api/player/types.ts";
+import { primeSpotifyPlayback } from "../api/spotify/runtime.ts";
 import { copyText, spotifyRedirectUri } from "../api/spotify/redirect.ts";
 import type { MusicLibraryState } from "../api/useMusicLibrary.tsx";
-import { cycleSetting, defaultSettings, isBacklight, type Frame, type Settings } from "../menus.ts";
-import type { MenuData } from "../menus/types.ts";
+import { cycleSetting, defaultSettings, isBacklight, type Settings } from "../menus/model.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import { hudFrom, type Hud } from "./BrickGame.tsx";
 import type { Overlay } from "./model.ts";
 import { topFrame } from "./navigation.ts";
@@ -98,13 +98,13 @@ export function useMenuActivate({
     const view = selectionView(frame, settingsRef.current, dataRef.current, playbackSlice(playerRef.current));
     const row = view.row;
     if (frame.id === "playlist" && frame.param && row?.id === "unavailable") {
-      void music.loadPlaylist(frame.param);
+      void music.loadPlaylist(frame.param, { retry: true });
       return;
     }
     if (!row || row.action === "info") return;
     if (row.action === "open" && row.screen) {
       if (row.screen === "playlist" && row.param && dataRef.current.playlistDetail[row.param]?.unavailable) {
-        void music.loadPlaylist(row.param);
+        void music.loadPlaylist(row.param, { retry: true });
       }
       push(row.screen, row.param, row.screenTitle ?? row.title);
       return;

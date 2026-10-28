@@ -110,6 +110,11 @@ export class SpotifyTransport {
     this.player().setVolume(volume);
   }
 
+  releaseDevice() {
+    this.modesAligned = false;
+    this.shuffleForced = false;
+  }
+
   async getState(): Promise<DevicePlaybackState | null> {
     return asDeviceState(await this.player().getCurrentState());
   }

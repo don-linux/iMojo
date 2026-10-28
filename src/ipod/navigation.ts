@@ -6,9 +6,11 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import { cloneGame, createGame, type BrickGame } from "../brick.ts";
-import type { Player } from "../api/player.ts";
-import { rows, type Frame, type MenuData, type Settings } from "../menus.ts";
+import { cloneGame, createGame, type BrickGame } from "../brick/geom.ts";
+import type { Player } from "../api/player/types.ts";
+import type { Settings } from "../menus/model.ts";
+import { rows } from "../menus/rows.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import { EMPTY_HUD, type Hud } from "./BrickGame.tsx";
 import { frameKey, type PendingSlide, type SheetLayer } from "./model.ts";
 import type { NowPlayingControls } from "./nowPlayingControls.ts";
@@ -62,14 +64,6 @@ export type NavigationBag = {
   setLayers: Dispatch<SetStateAction<SheetLayer[]>>;
   setHud: Dispatch<SetStateAction<Hud>>;
 };
-
-export function listForFrame(
-  frame: Frame,
-  settingsRef: RefObject<Settings>,
-  dataRef: RefObject<MenuData>,
-) {
-  return rows(frame, settingsRef.current, dataRef.current);
-}
 
 export function topFrame(stackRef: RefObject<Frame[]>) {
   return stackRef.current.at(-1);

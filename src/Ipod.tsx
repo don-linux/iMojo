@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useMusicLibrary } from "./api/useMusicLibrary.tsx";
-import { usePlayer } from "./api/player.ts";
-import { SpotifySdkEngine } from "./api/spotify/engine.ts";
-import type { Settings } from "./menus.ts";
+import { usePlayer } from "./api/player/usePlayer.ts";
+import { SpotifySdkEngine } from "./api/spotify/runtime.ts";
+import type { Settings } from "./menus/model.ts";
 import { loadSettings } from "./settings.ts";
 import "./ipod.css";
 import { IpodScreen } from "./ipod/IpodScreen.tsx";

@@ -234,7 +234,14 @@ export async function fetchPlaylistTracks(
     }
     const updated = nextLibrary.playlists.map((playlist) =>
       playlist.id === id
-        ? { ...playlist, trackIds, tracksLoaded: true, unavailable: false, total: trackIds.length }
+        ? {
+            ...playlist,
+            trackIds,
+            tracksLoaded: true,
+            unavailable: false,
+            ownerDenied: false,
+            total: trackIds.length,
+          }
         : playlist,
     );
     const next = withDerivedArtists({ ...nextLibrary, playlists: updated });
@@ -263,6 +270,7 @@ function denyPlaylist(library: MusicLibrary, playlist: Playlist) {
   const next = replacePlaylist(library, {
     ...playlist,
     unavailable: true,
+    ownerDenied: true,
     tracksLoaded: true,
     trackIds: [],
   });

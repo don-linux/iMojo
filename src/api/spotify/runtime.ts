@@ -49,11 +49,16 @@ export function warmSpotifyPlayer() {
   void sdk.whenReady().catch(() => {});
 }
 
-export function disposeSpotifyPlayer() {
-  token += 1;
+function dropPlayer() {
   sink?.suspend();
   player?.dispose();
   player = null;
+  spotifyTransport.releaseDevice();
+}
+
+export function disposeSpotifyPlayer() {
+  // Do not bump `token`: the mounted engine must still dispose a player created after this.
+  dropPlayer();
 }
 
 export const spotifyTransport = new SpotifyTransport(() => livePlayer());
@@ -71,9 +76,7 @@ export class SpotifySdkEngine {
     const mine = this.token;
     queueMicrotask(() => {
       if (mine !== token) return;
-      sink?.suspend();
-      player?.dispose();
-      player = null;
+      dropPlayer();
     });
   }
 }

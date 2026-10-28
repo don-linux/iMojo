@@ -1,9 +1,5 @@
-export const VOLUME_DEGREES_PER_PERCENT = 4.5;
-export const VOLUME_DEGREES_PER_CLICK = 20.4545454545;
-export const SEEK_DEGREES_PER_STEP = 15;
 export const SEEK_COMMIT_MS = 1000;
 export const NOW_PLAYING_IDLE_MS = 5000;
-export const SEEK_STEP_SECONDS = 1;
 export const VOLUME_KEY_STEP = 5;
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US");

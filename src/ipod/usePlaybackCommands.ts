@@ -1,11 +1,11 @@
 import type { RefObject } from "react";
-import type { Player } from "../api/player.ts";
+import type { Player } from "../api/player/types.ts";
 import { artistTracks, playlistTracks, savedTracks } from "../api/selectors.ts";
-import { primeSpotifyPlayback } from "../api/spotify/engine.ts";
+import { primeSpotifyPlayback } from "../api/spotify/runtime.ts";
 import type { MusicLibraryState } from "../api/useMusicLibrary.tsx";
 import type { Track } from "../api/types.ts";
-import type { Frame, Settings } from "../menus.ts";
-import type { MenuData } from "../menus/types.ts";
+import type { Settings } from "../menus/model.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import type { Overlay } from "./model.ts";
 import { topFrame } from "./navigation.ts";
 import { playbackSlice, selectionView } from "./selection.ts";

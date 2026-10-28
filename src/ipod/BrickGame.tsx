@@ -1,5 +1,7 @@
 import { useEffect, useEffectEvent, useRef } from "react";
-import { clearAccumulator, drawGame, tick, type BrickGame as BrickState } from "../brick.ts";
+import { drawGame } from "../brick/draw.ts";
+import type { BrickGame as BrickState } from "../brick/geom.ts";
+import { clearAccumulator, tick } from "../brick/sim.ts";
 
 export type Hud = { score: number; balls: number; playing: boolean; over: boolean };
 

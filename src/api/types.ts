@@ -35,6 +35,8 @@ export type Playlist = {
   total?: number;
   tracksLoaded?: boolean;
   unavailable?: boolean;
+  /** Feb 2026 owner rule. These playlists are not retried. */
+  ownerDenied?: boolean;
   ownerId?: string;
   collaborative?: boolean;
 };

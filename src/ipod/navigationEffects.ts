@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, type Dispatch, type SetStateAction } from "react";
-import { createGame, type BrickGame } from "../brick.ts";
-import type { Player } from "../api/player.ts";
-import type { Frame, MenuData, Settings } from "../menus.ts";
+import { createGame, type BrickGame } from "../brick/geom.ts";
+import type { Player } from "../api/player/types.ts";
+import type { Settings } from "../menus/model.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import { MENU_ROW_HEIGHT, scrollTopForIndex } from "./listScroll.ts";
 import type { PendingSlide, SheetLayer } from "./model.ts";
 import { mainFrame, type NavFrame, type Selection } from "./navigationReducer.ts";
@@ -13,7 +14,7 @@ export function useDeviceEnvironment() {
   const reduceMotion = useRef(false);
 
   useEffect(() => {
-    deviceRef.current?.focus();
+    deviceRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {

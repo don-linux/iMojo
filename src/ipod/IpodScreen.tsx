@@ -1,8 +1,9 @@
 import type { Dispatch, Ref, RefObject, SetStateAction } from "react";
-import type { Player } from "../api/player.ts";
-import type { BrickGame } from "../brick.ts";
-import type { Frame, MenuData, Settings } from "../menus.ts";
-import { titleFor } from "../menus.ts";
+import type { Player } from "../api/player/types.ts";
+import type { BrickGame } from "../brick/geom.ts";
+import type { Settings } from "../menus/model.ts";
+import { titleFor } from "../menus/title.ts";
+import type { Frame, MenuData } from "../menus/types.ts";
 import { BrickPane, hudFrom, type Hud } from "./BrickGame.tsx";
 import { ClickWheel, type WheelScrollTarget } from "./ClickWheel.tsx";
 import { ClientIdDialog } from "./ClientIdDialog.tsx";

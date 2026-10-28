@@ -1,7 +1,9 @@
 import { useMemo, useSyncExternalStore } from "react";
+import { createPlaylistLoads, type LoadPlaylistOptions } from "./playlistLoads.ts";
 import { createProvider, providerLabel } from "./provider.ts";
-import { SpotifyRequestError, SpotifySessionError } from "./spotify/api.ts";
-import { emptySpotifyLibrary, withDerivedArtists } from "./spotify/library.ts";
+import { SpotifySessionError } from "./spotify/api.ts";
+import { emptySpotifyLibrary } from "./spotify/library.ts";
+import { disposeSpotifyPlayer } from "./spotify/runtime.ts";
 import type {
   LoadStatus,
   MusicLibrary,
@@ -9,6 +11,7 @@ import type {
   ProviderConnection,
   Track,
 } from "./types.ts";
+
 const SETUP_CONNECTION: ProviderConnection = { status: "setup", account: null, error: null };
 
 export type MusicLibraryState = {
@@ -21,9 +24,10 @@ export type MusicLibraryState = {
   connectProvider: () => Promise<void>;
   disconnectProvider: () => Promise<void>;
   saveClientId: (clientId: string) => void;
-  loadPlaylist: (id: string) => Promise<void>;
+  loadPlaylist: (id: string, options?: LoadPlaylistOptions) => Promise<void>;
   resolvePlayback: (track: Track) => Promise<PlaybackSource | null>;
 };
+
 type Snapshot = {
   library: MusicLibrary;
   sourceLabel: string;
@@ -44,8 +48,6 @@ function createMusicLibraryStore() {
   const provider = createProvider();
   const sourceLabel = providerLabel();
   const listeners = new Set<() => void>();
-  const playlistLoads = new Map<string, Promise<void>>();
-  const dirtyPlaylists = new Set<string>();
   let library = emptySpotifyLibrary();
   let status: LoadStatus = "idle";
   let error: string | null = null;
@@ -75,26 +77,24 @@ function createMusicLibraryStore() {
     emit();
   }
 
-  function preserveLoaded(next: MusicLibrary) {
-    const tracks = { ...next.tracks };
-    const playlists = next.playlists.map((playlist) => {
-      if (!dirtyPlaylists.has(playlist.id)) return playlist;
-      const current = library.playlists.find((entry) => entry.id === playlist.id);
-      if (!current) return playlist;
-      for (const trackId of current.trackIds) {
-        const track = library.tracks[trackId];
-        if (track) tracks[trackId] = track;
-      }
-      return current;
-    });
-    dirtyPlaylists.clear();
-    return withDerivedArtists({ ...next, tracks, playlists });
-  }
+  const playlists = createPlaylistLoads({
+    getLibrary: () => library,
+    setLibrary: (next) => {
+      library = next;
+    },
+    getConnection: () => connection,
+    setConnection: (next) => {
+      connection = next;
+    },
+    emit,
+    reloadGeneration: () => reloadGen,
+    onDeadSession: applyDeadSession,
+    ensurePlaylist: provider.ensurePlaylist,
+  });
 
   async function reload() {
     const gen = ++reloadGen;
-    dirtyPlaylists.clear();
-    playlistLoads.clear();
+    playlists.reset();
     const reported = provider.readConnection?.();
     if (reported && (reported.status === "setup" || reported.status === "disconnected")) {
       library = emptySpotifyLibrary();
@@ -112,7 +112,7 @@ function createMusicLibraryStore() {
     try {
       const next = await provider.loadLibrary();
       if (gen !== reloadGen) return;
-      library = preserveLoaded(next);
+      library = playlists.preserveLoaded(next);
       status = "ready";
       connection = liveConnection();
       emit();
@@ -145,67 +145,6 @@ function createMusicLibraryStore() {
     };
   }
 
-  function failPlaylist(id: string, reason: unknown) {
-    if (reason instanceof SpotifySessionError) {
-      applyDeadSession(reason);
-      return;
-    }
-    const message = reason instanceof Error ? reason.message : "Unable to load the playlist";
-    const statusCode = reason instanceof SpotifyRequestError ? reason.status : 0;
-    if (statusCode !== 403 && statusCode !== 404) {
-      dirtyPlaylists.add(id);
-      library = {
-        ...library,
-        playlists: library.playlists.map((playlist) =>
-          playlist.id === id ? { ...playlist, unavailable: true } : playlist,
-        ),
-      };
-    }
-    connection = { ...connection, error: message };
-    emit();
-  }
-
-  function applyPlaylist(id: string, next: MusicLibrary) {
-    const updated = next.playlists.find((playlist) => playlist.id === id);
-    if (!updated) return;
-    const tracks = { ...library.tracks };
-    for (const trackId of updated.trackIds) {
-      const track = next.tracks[trackId];
-      if (track) tracks[trackId] = track;
-    }
-    dirtyPlaylists.add(id);
-    library = withDerivedArtists({
-      ...library,
-      tracks,
-      playlists: library.playlists.map((playlist) => (playlist.id === id ? updated : playlist)),
-    });
-    emit();
-  }
-
-  function loadPlaylist(id: string) {
-    const ensure = provider.ensurePlaylist;
-    const current = library.playlists.find((playlist) => playlist.id === id);
-    if (!ensure || !current || current.tracksLoaded || current.unavailable) return Promise.resolve();
-    const existing = playlistLoads.get(id);
-    if (existing) return existing;
-    const gen = reloadGen;
-    const base = library;
-    const promise = ensure(base, id)
-      .then((next) => {
-        if (gen !== reloadGen) return;
-        applyPlaylist(id, next);
-      })
-      .catch((reason: unknown) => {
-        if (gen !== reloadGen) return;
-        failPlaylist(id, reason);
-      })
-      .finally(() => {
-        if (playlistLoads.get(id) === promise) playlistLoads.delete(id);
-      });
-    playlistLoads.set(id, promise);
-    return promise;
-  }
-
   async function connect() {
     if (!provider.connect) return;
     const before = liveConnection();
@@ -232,8 +171,8 @@ function createMusicLibraryStore() {
 
   async function disconnect() {
     const gen = ++reloadGen;
-    dirtyPlaylists.clear();
-    playlistLoads.clear();
+    playlists.reset();
+    disposeSpotifyPlayer();
     let failed: unknown;
     try {
       await provider.disconnect?.();
@@ -275,7 +214,7 @@ function createMusicLibraryStore() {
     connect,
     disconnect,
     saveClientId,
-    loadPlaylist,
+    loadPlaylist: playlists.loadPlaylist,
     resolvePlayback,
   };
 }

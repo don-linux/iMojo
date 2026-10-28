@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import type { Player } from "../api/player.ts";
+import type { Player } from "../api/player/types.ts";
 import { artistTracks, playlistTracks, savedTracks } from "../api/selectors.ts";
-import { warmSpotifyPlayer } from "../api/spotify/engine.ts";
+import { warmSpotifyPlayer } from "../api/spotify/runtime.ts";
 import type { MusicLibraryState } from "../api/useMusicLibrary.tsx";
 import type { Frame, MenuData } from "../menus/types.ts";
 import { songEntry } from "./model.ts";

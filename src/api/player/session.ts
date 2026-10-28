@@ -259,13 +259,6 @@ export class PlayerSession {
     assign(core, { loading: false });
   }
 
-  reportUnsupported(reason: string) {
-    this.core.optimistic = null;
-    this.core.sdkPlaying = false;
-    this.core.clock.setPaused(true);
-    assign(this.core, { error: reason, loading: false, hasLoaded: false });
-  }
-
   reportSdkError = (kind: string, message: string) => {
     if (kind === "authentication" || kind === "session") {
       halt(this.core, message);

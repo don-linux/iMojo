@@ -1,5 +1,6 @@
-import { usePlaybackClock, type Player } from "../api/player.ts";
-import type { Repeat, Shuffle } from "../menus.ts";
+import { usePlaybackClock } from "../api/player/usePlayer.ts";
+import type { Player } from "../api/player/types.ts";
+import type { Repeat, Shuffle } from "../menus/model.ts";
 import { Marquee } from "./Marquee.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
 import {

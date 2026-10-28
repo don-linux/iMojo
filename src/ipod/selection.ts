@@ -1,5 +1,6 @@
-import { rows, type Frame, type MenuData, type Settings } from "../menus.ts";
-import type { Row } from "../menus/types.ts";
+import type { Settings } from "../menus/model.ts";
+import { rows } from "../menus/rows.ts";
+import type { Frame, MenuData, Row } from "../menus/types.ts";
 import {
   canRemember,
   displayIndex,

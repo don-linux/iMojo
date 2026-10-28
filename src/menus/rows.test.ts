@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rows as barrelRows, titleFor } from "../menus.ts";
 import { defaultSettings, type Settings } from "./model.ts";
+import { titleFor } from "./title.ts";
 import { rows } from "./rows.ts";
 import {
   EMPTY_MENU_DATA,
@@ -93,8 +93,7 @@ for (const fixture of FIXTURES) {
   });
 }
 
-test("menus.ts re-exports the split modules", () => {
-  assert.equal(barrelRows, rows);
+test("titleFor names every screen", () => {
   const titles: Record<ScreenId, string> = {
     main: "iPod",
     playlists: "Playlists",

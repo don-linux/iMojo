@@ -1,4 +1,4 @@
-import type { BrickGame } from "../brick.ts";
+import type { BrickGame } from "../brick/geom.ts";
 import type { Track } from "../api/types.ts";
 import type { Frame, SongEntry } from "../menus/types.ts";
 
@@ -23,10 +23,6 @@ export type PendingSlide = {
   leavingId: number;
   enteringId: number;
 };
-
-export function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
 
 export function songEntry(track: Track): SongEntry {
   return { id: track.id, title: track.title, artistName: track.artistName };

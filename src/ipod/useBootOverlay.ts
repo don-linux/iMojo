@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
-import type { Player } from "../api/player.ts";
+import type { Player } from "../api/player/types.ts";
 import type { LoadStatus } from "../api/types.ts";
 import { createBootClock } from "./bootClock.ts";
 import type { Overlay } from "./model.ts";

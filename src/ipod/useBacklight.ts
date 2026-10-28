@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { unlockClick } from "../click.ts";
-import type { Settings } from "../menus.ts";
+import { unlockClick } from "../audio/clickPlayer.ts";
+import type { Settings } from "../menus/model.ts";
 import { loadSettings, saveSettings, subscribeSettings } from "../settings.ts";
 import { createBacklightController } from "./backlightController.ts";
 

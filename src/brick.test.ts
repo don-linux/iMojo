@@ -1,19 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BALL_R } from "./brick/geom.ts";
-import {
-  MAX_SPEED,
-  MAX_STEPS,
-  PX_PER_MS,
-  STEP_MS,
-  cloneGame,
-  createGame,
-  launch,
-  movePaddle,
-  setSteer,
-  tick,
-  type BrickGame,
-} from "./brick.ts";
+import { BALL_R, cloneGame, createGame, launch, movePaddle, type BrickGame } from "./brick/geom.ts";
+import { MAX_SPEED, MAX_STEPS, PX_PER_MS, STEP_MS, setSteer, tick } from "./brick/sim.ts";
 
 function advance(game: BrickGame, slice: number, total: number) {
   let elapsed = 0;
