@@ -1,6 +1,7 @@
 html {
   color-scheme: light dark;
   background: #ececf1;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
