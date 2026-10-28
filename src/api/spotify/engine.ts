@@ -1,81 +1,11 @@
-import type { EngineEventMap, PlaybackClock, PlaybackEngine } from "../engine.ts";
-import { SpotifyRequestError, spotifyJson, spotifySend } from "./api.ts";
-import { getAccessToken } from "./auth.ts";
-import { BROWSER_PLAYER_NOT_READY, isDeviceNotFound, playOnListedDevice } from "./devicePlayback.ts";
-import { readProfile } from "./storage.ts";
-
-type SpotifyPlaybackState = {
-  paused: boolean;
-  position: number;
-  duration: number;
-  timestamp: number;
-  track_window: {
-    current_track: { uri: string | null } | null;
-  };
-};
-
-type SpotifyPlayer = {
-  connect(): Promise<boolean>;
-  disconnect(): void;
-  addListener(name: "ready", callback: (event: { device_id: string }) => void): void;
-  addListener(name: "not_ready", callback: (event: { device_id: string }) => void): void;
-  addListener(
-    name: "player_state_changed",
-    callback: (state: SpotifyPlaybackState | null) => void,
-  ): void;
-  addListener(
-    name: "initialization_error" | "authentication_error" | "account_error" | "playback_error",
-    callback: (event: { message: string }) => void,
-  ): void;
-  getCurrentState(): Promise<SpotifyPlaybackState | null>;
-  setVolume(volume: number): Promise<void>;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
-  seek(positionMs: number): Promise<void>;
-  activateElement(): Promise<void>;
-};
-
-type SpotifySdk = {
-  Player: new (options: {
-    name: string;
-    getOAuthToken: (callback: (token: string) => void) => void;
-    volume?: number;
-  }) => SpotifyPlayer;
-};
-
-declare global {
-  interface Window {
-    Spotify?: SpotifySdk;
-    onSpotifyWebPlaybackSDKReady?: () => void;
-  }
-}
-
-const EMPTY_CLOCK: PlaybackClock = { currentTime: 0, duration: 0 };
-const PLAYER_NAME = "iPod";
-
-function premiumMessage() {
-  const product = readProfile()?.product;
-  if (product && product !== "premium") return "Spotify Premium is required to play";
-  return null;
-}
-
-function loadSdk() {
-  if (window.Spotify) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const previous = window.onSpotifyWebPlaybackSDKReady;
-    window.onSpotifyWebPlaybackSDKReady = () => {
-      previous?.();
-      resolve();
-    };
-    if (!document.querySelector("script[data-spotify-sdk]")) {
-      const script = document.createElement("script");
-      script.src = "https://sdk.scdn.co/spotify-player.js";
-      script.async = true;
-      script.dataset.spotifySdk = "true";
-      document.body.appendChild(script);
-    }
-  });
-}
+import type { EngineEventMap, PlaybackEngine } from "../engine.ts";
+import { BROWSER_PLAYER_NOT_READY } from "./devicePlayback.ts";
+import { createEngineListeners, EngineClock } from "./engineClock.ts";
+import { abortError, isAbort, messageOf, playUriOnDevice } from "./engineTransfer.ts";
+import { ensurePremium } from "./library.ts";
+import { SpotifySdkPlayer } from "./sdkPlayer.ts";
+import { PLAYER_NAME, PLAYER_NOT_LOADED, TRACK_ERROR, type SpotifyPlaybackState } from "./sdkTypes.ts";
+import { spotifyPlaybackSupport } from "./support.ts";
 
 let activeEngine: SpotifySdkEngine | null = null;
 
@@ -84,245 +14,166 @@ function setActiveEngine(engine: SpotifySdkEngine | null) {
 }
 
 export function primeSpotifyPlayback() {
-  activeEngine?.prime();
+  activeEngine?.activate();
 }
 
 export function warmSpotifyPlayer() {
   void activeEngine?.warm();
 }
 
+export function disposeSpotifyPlayer() {
+  activeEngine?.releasePlayer();
+}
+
 export class SpotifySdkEngine implements PlaybackEngine {
-  private player: SpotifyPlayer | null = null;
-  private connecting: Promise<void> | null = null;
-  private wantsActivation = false;
-  private readyPromise: Promise<void> | null = null;
-  private settleReady: ((error?: Error) => void) | null = null;
-  private readyTimer = 0;
-  private deviceId = "";
+  private sdk: SpotifySdkPlayer | null = null;
+  private detachSdk: (() => void) | null = null;
+  private unsupported: string | null = null;
+  private destroyed = false;
+  private halted = false;
+  private premiumReady = false;
   private uri = "";
   private nextUri: string | null = null;
   private volume = 1;
   private paused = true;
   private finishing = false;
-  private clock: PlaybackClock = EMPTY_CLOCK;
-  private anchor = { position: 0, at: 0, duration: 0, paused: true };
-  private frame = 0;
-  private listeners: { [K in keyof EngineEventMap]: Set<EngineEventMap[K]> } = {
-    clock: new Set(),
-    loaded: new Set(),
-    play: new Set(),
-    pause: new Set(),
-    ended: new Set(),
-    error: new Set(),
-    advance: new Set(),
-    handoff: new Set(),
-    revert: new Set(),
-  };
+  private operation: AbortController | null = null;
+  private readonly playback = new EngineClock({
+    running: () => !this.destroyed && !this.halted,
+    emitClock: (clock) => this.emit("clock", clock),
+    nearEnd: () => {
+      void this.finishTrack();
+    },
+  });
+  private listeners = createEngineListeners();
 
   constructor() {
     setActiveEngine(this);
-    void loadSdk();
+    const support = spotifyPlaybackSupport();
+    if (!support.ok) {
+      this.unsupported = support.reason;
+      return;
+    }
+    this.mountPlayer().preload();
   }
-
   private emit<K extends keyof EngineEventMap>(event: K, ...args: Parameters<EngineEventMap[K]>) {
     for (const handler of this.listeners[event]) {
       (handler as (...values: Parameters<EngineEventMap[K]>) => void)(...args);
     }
   }
-
+  activate() {
+    if (this.destroyed || this.unsupported) return;
+    this.livePlayer()?.activate();
+  }
   prime() {
-    this.wantsActivation = true;
-    const player = this.playerInstance();
-    if (player) void player.activateElement();
+    this.activate();
   }
-
   warm() {
-    void this.ensurePlayer();
+    if (this.destroyed || this.unsupported) return;
+    this.halted = false;
+    const sdk = this.livePlayer();
+    if (!sdk) return;
+    void sdk
+      .whenReady()
+      .then(() => {
+        if (!this.destroyed && !this.halted) this.playback.ensure();
+      })
+      .catch(() => {});
   }
 
-  private playerInstance() {
-    if (this.player) return this.player;
-    const sdk = window.Spotify;
-    if (!sdk) return null;
-    const player = new sdk.Player({
-      name: PLAYER_NAME,
-      volume: this.volume,
-      getOAuthToken: (callback) => {
-        void getAccessToken()
-          .then(callback)
-          .catch(() => callback(""));
-      },
+  releasePlayer() {
+    this.halted = true;
+    this.premiumReady = false;
+    this.playback.stop();
+    this.operation?.abort();
+    this.operation = null;
+    this.detachSdk?.();
+    this.detachSdk = null;
+    const sdk = this.sdk;
+    this.sdk = null;
+    sdk?.dispose();
+  }
+
+  private mountPlayer() {
+    const sdk = new SpotifySdkPlayer({ name: PLAYER_NAME, volume: this.volume });
+    const offState = sdk.on("state", (state) => {
+      if (this.destroyed || this.halted || sdk.disposed) return;
+      this.onState(state);
     });
-    this.player = player;
-    this.armReady();
-    player.addListener("ready", ({ device_id }) => {
-      this.deviceId = device_id;
-      this.settleReady?.();
+    const offError = sdk.on("error", (error) => {
+      if (this.destroyed) return;
+      this.fail(error.message);
     });
-    player.addListener("player_state_changed", (state) => this.onState(state));
-    player.addListener("account_error", () => this.fail("Spotify Premium is required to play"));
-    player.addListener("authentication_error", ({ message }) => this.fail(message));
-    player.addListener("initialization_error", ({ message }) => this.fail(message));
-    player.addListener("playback_error", ({ message }) => this.fail(message));
-    if (this.wantsActivation) void player.activateElement();
-    return player;
+    this.detachSdk?.();
+    this.detachSdk = () => {
+      offState();
+      offError();
+    };
+    this.sdk = sdk;
+    return sdk;
   }
 
-  private armReady() {
-    if (this.deviceId || this.readyPromise) return;
-    this.readyPromise = new Promise<void>((resolve, reject) => {
-      this.readyTimer = window.setTimeout(() => {
-        this.readyTimer = 0;
-        this.settleReady = null;
-        reject(new Error("Spotify player did not connect"));
-      }, 15_000);
-      this.settleReady = (error) => {
-        if (this.readyTimer) {
-          window.clearTimeout(this.readyTimer);
-          this.readyTimer = 0;
-        }
-        this.settleReady = null;
-        if (error) reject(error);
-        else resolve();
-      };
-    });
+  private livePlayer() {
+    if (this.destroyed || this.unsupported) return null;
+    if (!this.sdk || this.sdk.disposed) return this.mountPlayer();
+    return this.sdk;
   }
 
-  private cancelReady() {
-    if (this.readyTimer) {
-      window.clearTimeout(this.readyTimer);
-      this.readyTimer = 0;
-    }
-    this.settleReady = null;
-    this.readyPromise = null;
+  private beginOperation() {
+    this.operation?.abort();
+    const controller = new AbortController();
+    this.operation = controller;
+    return controller.signal;
   }
 
-  private ensureTick() {
-    if (!this.frame) this.frame = requestAnimationFrame(this.tick);
+  private throwIfStopped(signal?: AbortSignal) {
+    if (this.destroyed || this.halted || signal?.aborted) throw abortError(signal);
   }
 
-  private async ensurePlayer() {
-    if (!this.connecting) {
-      this.connecting = this.connectPlayer().catch((reason: unknown) => {
-        this.connecting = null;
-        throw reason;
-      });
-    }
-    await this.connecting;
+  private async requirePremium(signal: AbortSignal) {
+    if (this.premiumReady) return;
+    await ensurePremium(signal);
+    this.premiumReady = true;
+    this.throwIfStopped(signal);
   }
 
-  private async connectPlayer() {
-    await loadSdk();
-    const player = this.playerInstance();
-    if (!player) throw new Error("Spotify player did not load");
-    if (this.wantsActivation) void player.activateElement();
-    if (this.deviceId) {
-      this.ensureTick();
-      return;
-    }
-    this.armReady();
-    try {
-      await player.connect();
-      if (this.deviceId) {
-        this.ensureTick();
-        return;
-      }
-      // connect() can resolve false before ready. The device id arrives on ready.
-      await this.readyPromise;
-      if (!this.deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
-      this.ensureTick();
-    } catch (reason) {
-      if (!this.deviceId) this.cancelReady();
-      throw reason;
-    }
+  private async prepare(signal: AbortSignal) {
+    this.throwIfStopped(signal);
+    await this.requirePremium(signal);
+    const sdk = this.livePlayer();
+    if (!sdk) throw new Error(this.unsupported ?? PLAYER_NOT_LOADED);
+    const deviceId = await sdk.whenReady();
+    this.throwIfStopped(signal);
+    if (!deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
+    this.playback.ensure();
+    return sdk;
   }
 
   private fail(message: string) {
     this.paused = true;
-    this.emit("error", message || "This track cannot be played");
+    this.emit("error", message || TRACK_ERROR);
   }
 
   private onState(state: SpotifyPlaybackState | null) {
     if (!state) return;
-    const lag = Date.now() - state.timestamp;
-    this.anchor = {
-      position: state.position,
-      at: performance.now() - (Number.isFinite(lag) ? lag : 0),
-      duration: state.duration,
-      paused: state.paused,
-    };
     this.paused = state.paused;
-    this.publishClock();
-    if (
-      state.paused &&
-      state.duration > 0 &&
-      state.position > 800 &&
-      state.position >= state.duration - 1200 &&
-      state.track_window.current_track?.uri === this.uri
-    ) {
-      void this.finishTrack();
-    }
+    if (this.playback.note(state, this.uri)) void this.finishTrack();
   }
 
-  private publishClock() {
-    const elapsed = this.anchor.paused ? 0 : performance.now() - this.anchor.at;
-    const position = Math.min(this.anchor.duration, Math.max(0, this.anchor.position + elapsed));
-    this.clock = {
-      currentTime: position / 1000,
-      duration: this.anchor.duration / 1000,
-    };
-    this.emit("clock", this.clock);
-  }
-
-  private tick = () => {
-    this.publishClock();
-    if (!this.anchor.paused && this.anchor.duration > 0) {
-      const position = this.anchor.position + (performance.now() - this.anchor.at);
-      if (position >= this.anchor.duration - 250) void this.finishTrack();
-    }
-    this.frame = requestAnimationFrame(this.tick);
-  };
-
-  private async startUri(uri: string) {
-    const blocked = premiumMessage();
-    if (blocked) throw new Error(blocked);
-    this.prime();
-    await this.ensurePlayer();
-    if (!this.deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
-    try {
-      await playOnListedDevice({
-        deviceId: this.deviceId,
-        deviceName: PLAYER_NAME,
-        listDevices: async () => {
-          const access = await getAccessToken();
-          const body = await spotifyJson<{
-            devices?: { id: string | null; name?: string; is_restricted?: boolean }[];
-          }>("https://api.spotify.com/v1/me/player/devices", access);
-          return body?.devices ?? [];
-        },
-        play: async (deviceId) => {
-          this.deviceId = deviceId;
-          const access = await getAccessToken();
-          await spotifySend(
-            "PUT",
-            `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
-            access,
-            { uris: [uri] },
-          );
-        },
-        isMissingDevice: (reason) =>
-          reason instanceof SpotifyRequestError &&
-          isDeviceNotFound(reason.status, reason.message),
-        sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
-      });
-    } catch (reason) {
-      if (reason instanceof SpotifyRequestError) throw new Error(reason.message);
-      throw reason;
-    }
+  private async startUri(uri: string, signal: AbortSignal) {
+    const sdk = await this.prepare(signal);
+    if (!sdk.deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
+    await playUriOnDevice({
+      deviceId: sdk.deviceId,
+      uri,
+      signal,
+      stopped: () => this.destroyed || this.halted,
+    });
+    this.throwIfStopped(signal);
     this.uri = uri;
     this.finishing = false;
     this.paused = false;
-    this.anchor = { position: 0, at: performance.now(), duration: 0, paused: false };
+    this.playback.restart();
   }
 
   private async finishTrack() {
@@ -331,20 +182,23 @@ export class SpotifySdkEngine implements PlaybackEngine {
     const next = this.nextUri;
     if (!next) {
       this.paused = true;
-      this.anchor = { ...this.anchor, paused: true };
+      this.playback.freeze();
       this.emit("ended");
       return;
     }
     this.nextUri = null;
     this.uri = next;
     this.emit("handoff");
+    const signal = this.beginOperation();
     try {
-      await this.startUri(next);
-      this.publishClock();
-      this.emit("advance", this.clock);
+      await this.startUri(next, signal);
+      this.throwIfStopped(signal);
+      this.playback.publish();
+      this.emit("advance", this.playback.clock);
       this.emit("play");
     } catch (reason) {
-      this.fail(reason instanceof Error ? reason.message : "This track cannot be played");
+      if (isAbort(reason) || this.halted || this.destroyed) return;
+      this.fail(messageOf(reason, TRACK_ERROR));
     }
   }
 
@@ -356,19 +210,26 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   async load(uri: string) {
+    const signal = this.beginOperation();
     this.uri = uri;
     this.nextUri = null;
     this.finishing = false;
-    this.clock = EMPTY_CLOCK;
-    this.anchor = { position: 0, at: performance.now(), duration: 0, paused: true };
-    this.emit("clock", this.clock);
-    const blocked = premiumMessage();
-    if (blocked) {
-      this.fail(blocked);
-      throw new Error(blocked);
+    this.playback.reset();
+    try {
+      if (this.destroyed) throw abortError();
+      if (this.unsupported) throw new Error(this.unsupported);
+      this.halted = false;
+      await this.prepare(signal);
+      this.throwIfStopped(signal);
+      this.emit("loaded", this.playback.clock);
+    } catch (reason) {
+      if (this.destroyed || this.halted || isAbort(reason)) {
+        throw reason instanceof Error ? reason : abortError(signal);
+      }
+      const message = messageOf(reason, TRACK_ERROR);
+      this.fail(message);
+      throw reason instanceof Error ? reason : new Error(message);
     }
-    await this.ensurePlayer();
-    this.emit("loaded", this.clock);
   }
 
   setNext(uri: string | null) {
@@ -380,71 +241,58 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   async play() {
-    this.prime();
+    this.activate();
     if (!this.uri) throw new Error("No track loaded");
-    const blocked = premiumMessage();
-    if (blocked) throw new Error(blocked);
-    await this.ensurePlayer();
-    const state = await this.player?.getCurrentState();
+    if (this.destroyed) throw abortError();
+    if (this.unsupported) throw new Error(this.unsupported);
+    this.halted = false;
+    const signal = this.beginOperation();
+    const sdk = await this.prepare(signal);
+    const state = await sdk.getCurrentState();
+    this.throwIfStopped(signal);
     if (state?.track_window.current_track?.uri === this.uri && state.paused) {
-      await this.player?.resume();
+      await sdk.resume();
     } else if (state?.track_window.current_track?.uri !== this.uri) {
-      await this.startUri(this.uri);
+      await this.startUri(this.uri, signal);
     }
+    this.throwIfStopped(signal);
     this.paused = false;
     this.finishing = false;
-    this.anchor = { ...this.anchor, paused: false, at: performance.now() };
+    this.playback.resume();
     this.emit("play");
+    this.playback.ensure();
   }
-
   pause() {
     this.paused = true;
-    this.anchor = {
-      ...this.anchor,
-      paused: true,
-      position: this.clock.currentTime * 1000,
-      at: performance.now(),
-    };
-    void this.player?.pause();
+    this.playback.pause();
+    void this.sdk?.pause();
     this.emit("pause");
   }
-
   stop() {
     this.uri = "";
     this.nextUri = null;
     this.finishing = false;
     this.paused = true;
-    void this.player?.pause();
-    this.clock = EMPTY_CLOCK;
-    this.anchor = { position: 0, at: performance.now(), duration: 0, paused: true };
-    this.emit("clock", this.clock);
+    void this.sdk?.pause();
+    this.playback.reset();
   }
-
   seek(seconds: number) {
-    const position = Math.max(0, seconds * 1000);
-    this.anchor = { ...this.anchor, position, at: performance.now() };
-    this.publishClock();
-    void this.player?.seek(Math.round(position));
+    this.playback.seek(seconds);
+    void this.sdk?.seek(Math.round(Math.max(0, seconds * 1000)));
   }
-
   setVolume(volume: number) {
     this.volume = volume;
-    void this.player?.setVolume(volume);
+    this.sdk?.setVolume(volume);
   }
-
   getClock() {
-    return this.clock;
+    return this.playback.clock;
   }
-
   isPaused() {
     return this.paused;
   }
-
   destroy() {
-    if (this.frame) cancelAnimationFrame(this.frame);
-    this.cancelReady();
-    this.player?.disconnect();
-    this.player = null;
+    this.destroyed = true;
+    this.releasePlayer();
     if (activeEngine === this) setActiveEngine(null);
     for (const set of Object.values(this.listeners)) set.clear();
   }
