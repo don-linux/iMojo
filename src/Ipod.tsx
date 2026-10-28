@@ -40,6 +40,20 @@ import type { Track } from "./api/types.ts";
 import { ClientIdDialog } from "./ipod/ClientIdDialog.tsx";
 import "./ipod.css";
 
+function scrollListToRow(list: HTMLElement, row: HTMLElement) {
+  const rowHeight = row.offsetHeight;
+  if (rowHeight <= 0) return;
+  const top = row.offsetTop - list.offsetTop - list.clientTop;
+  const index = Math.max(0, Math.round(top / rowHeight));
+  const visible = Math.max(1, Math.floor((list.clientHeight + 0.5) / rowHeight));
+  let start = Math.round(list.scrollTop / rowHeight);
+  if (index < start) start = index;
+  else if (index >= start + visible) start = index - visible + 1;
+  const next = Math.max(0, start) * rowHeight;
+  const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
+  list.scrollTop = Math.min(next, maxScroll);
+}
+
 const SELECT_HOLD_MS = 5000;
 const MENU_HOLD_MS = 1000;
 const HOLD_SEEK_TIERS = [5, 5, 5, 10, 10, 10, 20] as const;
@@ -392,20 +406,14 @@ export default function Ipod() {
     applyBacklight(settings.backlight);
   }, [settings.backlight, settings.backlightChosen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const frame = stack[stack.length - 1];
     if (!frame || frame.id === "brick" || frame.id === "now-playing") return;
     const current = document.querySelector(".sheet.live");
     const row = current?.querySelector<HTMLElement>(`#menu-item-${frame.id}-${frame.index}`);
     const list = row?.closest<HTMLElement>(".menu-items");
     if (!row || !list) return;
-    const rowRect = row.getBoundingClientRect();
-    const listRect = list.getBoundingClientRect();
-    const top = rowRect.top - listRect.top + list.scrollTop;
-    const bottom = top + rowRect.height;
-    if (top < list.scrollTop) list.scrollTop = top;
-    else if (bottom > list.scrollTop + list.clientHeight)
-      list.scrollTop = bottom - list.clientHeight;
+    scrollListToRow(list, row);
   }, [stack, settings, data]);
 
   useEffect(() => {
