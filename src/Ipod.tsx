@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createGame, launch, movePaddle, type BrickGame } from "./brick.ts";
-import { playClick, unlockClick } from "./click.ts";
+import { armClick } from "./click.ts";
 import {
   BACKLIGHTS,
   cycleSetting,
@@ -491,7 +491,7 @@ export default function Ipod() {
       menu,
       menuHold() {
         if (overlayRef.current) return;
-        unlockClick();
+        armClick(settingsRef.current.clicker === "on");
         toggleBacklight();
       },
       select: activate,
@@ -532,14 +532,14 @@ export default function Ipod() {
       back() {
         if (overlayRef.current) return;
         notify();
-        unlockClick();
+        armClick(settingsRef.current.clicker === "on");
         if (nowPlaying.isSeeking()) return;
         playerRef.current.previous();
       },
       forward() {
         if (overlayRef.current) return;
         notify();
-        unlockClick();
+        armClick(settingsRef.current.clicker === "on");
         if (nowPlaying.isSeeking()) return;
         playerRef.current.next();
       },
@@ -624,7 +624,7 @@ export default function Ipod() {
         case "ArrowUp":
           event.preventDefault();
           event.stopPropagation();
-          unlockClick();
+          armClick(settingsRef.current.clicker === "on");
           actions.current.screenArrow(name === "ArrowDown" ? 1 : -1);
           break;
         case "ArrowLeft":
@@ -636,13 +636,13 @@ export default function Ipod() {
         case " ":
           event.preventDefault();
           event.stopPropagation();
-          unlockClick();
+          armClick(settingsRef.current.clicker === "on");
           if (!event.repeat) actions.current.select();
           break;
         case "Escape":
           event.preventDefault();
           event.stopPropagation();
-          unlockClick();
+          armClick(settingsRef.current.clicker === "on");
           if (event.repeat) return;
           escapeArmed = true;
           escapeFired = false;
@@ -737,12 +737,12 @@ export default function Ipod() {
   }
 
   function clickSound() {
-    if (settingsRef.current.clicker === "on") playClick();
+    armClick(settingsRef.current.clicker === "on", true);
   }
 
   function pressOnly() {
     notify();
-    unlockClick();
+    armClick(settingsRef.current.clicker === "on");
   }
 
   function publishHud(game: BrickGame) {
@@ -1018,7 +1018,7 @@ export default function Ipod() {
       return;
     }
     notify();
-    unlockClick();
+    armClick(settingsRef.current.clicker === "on");
     const frame = currentFrame();
     if (!frame) return;
     if (frame.id === "brick") {
@@ -1229,7 +1229,7 @@ export default function Ipod() {
                   onSelect={() => actions.current.select()}
                   onSelectHold={() => actions.current.openBrick()}
                   onDragStart={() => {
-                    unlockClick();
+                    armClick(settingsRef.current.clicker === "on");
                     scroller.current.reset();
                     seekScroller.current.reset();
                     volumeScroller.current.reset();
