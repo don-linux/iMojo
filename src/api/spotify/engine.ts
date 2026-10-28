@@ -1,6 +1,7 @@
 import type { EngineEventMap, PlaybackClock, PlaybackEngine } from "../engine.ts";
-import { SpotifyRequestError, spotifySend } from "./api.ts";
+import { SpotifyRequestError, spotifyJson, spotifySend } from "./api.ts";
 import { getAccessToken } from "./auth.ts";
+import { BROWSER_PLAYER_NOT_READY, isDeviceNotFound, playOnListedDevice } from "./devicePlayback.ts";
 import { readProfile } from "./storage.ts";
 
 type SpotifyPlaybackState = {
@@ -50,6 +51,7 @@ declare global {
 }
 
 const EMPTY_CLOCK: PlaybackClock = { currentTime: 0, duration: 0 };
+const PLAYER_NAME = "iPod";
 
 function premiumMessage() {
   const product = readProfile()?.product;
@@ -92,6 +94,10 @@ export function warmSpotifyPlayer() {
 export class SpotifySdkEngine implements PlaybackEngine {
   private player: SpotifyPlayer | null = null;
   private connecting: Promise<void> | null = null;
+  private wantsActivation = false;
+  private readyPromise: Promise<void> | null = null;
+  private settleReady: ((error?: Error) => void) | null = null;
+  private readyTimer = 0;
   private deviceId = "";
   private uri = "";
   private nextUri: string | null = null;
@@ -125,11 +131,74 @@ export class SpotifySdkEngine implements PlaybackEngine {
   }
 
   prime() {
-    void this.player?.activateElement();
+    this.wantsActivation = true;
+    const player = this.playerInstance();
+    if (player) void player.activateElement();
   }
 
   warm() {
     void this.ensurePlayer();
+  }
+
+  private playerInstance() {
+    if (this.player) return this.player;
+    const sdk = window.Spotify;
+    if (!sdk) return null;
+    const player = new sdk.Player({
+      name: PLAYER_NAME,
+      volume: this.volume,
+      getOAuthToken: (callback) => {
+        void getAccessToken()
+          .then(callback)
+          .catch(() => callback(""));
+      },
+    });
+    this.player = player;
+    this.armReady();
+    player.addListener("ready", ({ device_id }) => {
+      this.deviceId = device_id;
+      this.settleReady?.();
+    });
+    player.addListener("player_state_changed", (state) => this.onState(state));
+    player.addListener("account_error", () => this.fail("Spotify Premium is required to play"));
+    player.addListener("authentication_error", ({ message }) => this.fail(message));
+    player.addListener("initialization_error", ({ message }) => this.fail(message));
+    player.addListener("playback_error", ({ message }) => this.fail(message));
+    if (this.wantsActivation) void player.activateElement();
+    return player;
+  }
+
+  private armReady() {
+    if (this.deviceId || this.readyPromise) return;
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyTimer = window.setTimeout(() => {
+        this.readyTimer = 0;
+        this.settleReady = null;
+        reject(new Error("Spotify player did not connect"));
+      }, 15_000);
+      this.settleReady = (error) => {
+        if (this.readyTimer) {
+          window.clearTimeout(this.readyTimer);
+          this.readyTimer = 0;
+        }
+        this.settleReady = null;
+        if (error) reject(error);
+        else resolve();
+      };
+    });
+  }
+
+  private cancelReady() {
+    if (this.readyTimer) {
+      window.clearTimeout(this.readyTimer);
+      this.readyTimer = 0;
+    }
+    this.settleReady = null;
+    this.readyPromise = null;
+  }
+
+  private ensureTick() {
+    if (!this.frame) this.frame = requestAnimationFrame(this.tick);
   }
 
   private async ensurePlayer() {
@@ -144,38 +213,28 @@ export class SpotifySdkEngine implements PlaybackEngine {
 
   private async connectPlayer() {
     await loadSdk();
-    const sdk = window.Spotify;
-    if (!sdk) throw new Error("Spotify player did not load");
-    const player = new sdk.Player({
-      name: "iPod",
-      volume: this.volume,
-      getOAuthToken: (callback) => {
-        void getAccessToken()
-          .then(callback)
-          .catch(() => callback(""));
-      },
-    });
-    this.player = player;
-    const ready = new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(
-        () => reject(new Error("Spotify player did not connect")),
-        15000,
-      );
-      player.addListener("ready", ({ device_id }) => {
-        window.clearTimeout(timer);
-        this.deviceId = device_id;
-        resolve();
-      });
-    });
-    player.addListener("player_state_changed", (state) => this.onState(state));
-    player.addListener("account_error", () => this.fail("Spotify Premium is required to play"));
-    player.addListener("authentication_error", ({ message }) => this.fail(message));
-    player.addListener("initialization_error", ({ message }) => this.fail(message));
-    player.addListener("playback_error", ({ message }) => this.fail(message));
-    const connected = await player.connect();
-    if (!connected) throw new Error("Spotify player did not connect");
-    await ready;
-    this.frame = requestAnimationFrame(this.tick);
+    const player = this.playerInstance();
+    if (!player) throw new Error("Spotify player did not load");
+    if (this.wantsActivation) void player.activateElement();
+    if (this.deviceId) {
+      this.ensureTick();
+      return;
+    }
+    this.armReady();
+    try {
+      await player.connect();
+      if (this.deviceId) {
+        this.ensureTick();
+        return;
+      }
+      // connect() can resolve false before ready. The device id arrives on ready.
+      await this.readyPromise;
+      if (!this.deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
+      this.ensureTick();
+    } catch (reason) {
+      if (!this.deviceId) this.cancelReady();
+      throw reason;
+    }
   }
 
   private fail(message: string) {
@@ -227,19 +286,35 @@ export class SpotifySdkEngine implements PlaybackEngine {
   private async startUri(uri: string) {
     const blocked = premiumMessage();
     if (blocked) throw new Error(blocked);
+    this.prime();
     await this.ensurePlayer();
-    const access = await getAccessToken();
+    if (!this.deviceId) throw new Error(BROWSER_PLAYER_NOT_READY);
     try {
-      await spotifySend("PUT", "https://api.spotify.com/v1/me/player", access, {
-        device_ids: [this.deviceId],
-        play: false,
+      await playOnListedDevice({
+        deviceId: this.deviceId,
+        deviceName: PLAYER_NAME,
+        listDevices: async () => {
+          const access = await getAccessToken();
+          const body = await spotifyJson<{
+            devices?: { id: string | null; name?: string; is_restricted?: boolean }[];
+          }>("https://api.spotify.com/v1/me/player/devices", access);
+          return body?.devices ?? [];
+        },
+        play: async (deviceId) => {
+          this.deviceId = deviceId;
+          const access = await getAccessToken();
+          await spotifySend(
+            "PUT",
+            `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
+            access,
+            { uris: [uri] },
+          );
+        },
+        isMissingDevice: (reason) =>
+          reason instanceof SpotifyRequestError &&
+          isDeviceNotFound(reason.status, reason.message),
+        sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
       });
-      await spotifySend(
-        "PUT",
-        `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(this.deviceId)}`,
-        access,
-        { uris: [uri] },
-      );
     } catch (reason) {
       if (reason instanceof SpotifyRequestError) throw new Error(reason.message);
       throw reason;
@@ -367,6 +442,7 @@ export class SpotifySdkEngine implements PlaybackEngine {
 
   destroy() {
     if (this.frame) cancelAnimationFrame(this.frame);
+    this.cancelReady();
     this.player?.disconnect();
     this.player = null;
     if (activeEngine === this) setActiveEngine(null);
