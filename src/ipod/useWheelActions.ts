@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import { movePaddle, setSteer, type BrickGame } from "../brick.ts";
 import { playClick, unlockClick } from "../click.ts";
 import type { Frame, MenuData, Settings } from "../menus.ts";
@@ -6,7 +6,8 @@ import { VOLUME_KEY_STEP } from "./playbackTiming.ts";
 import type { NowPlayingControls } from "./nowPlayingControls.ts";
 import type { Player } from "../api/player.ts";
 import type { Overlay } from "./model.ts";
-import { HOLD_SEEK_TIERS } from "./model.ts";
+import { createLatestSeek, stepHoldSeek, type LatestSeek } from "./holdSeek.ts";
+import { useDocumentVisible } from "./useDocumentVisible.ts";
 import { topFrame } from "./navigation.ts";
 import {
   createListScroller,
@@ -78,6 +79,7 @@ export function useWheelActions({
   const seekScroller = useRef(createSeekScroller());
   const volumeScroller = useRef(createVolumeScroller());
   const holdSeekRef = useRef<HoldSeekState>({ tier: 0 });
+  const seekGateRef = useRef<LatestSeek | null>(null);
   const volumeClickLatch = useRef(false);
   const volumeClickStep = useRef<1 | -1 | null>(null);
   const actions = useRef<WheelActions>({
@@ -108,33 +110,47 @@ export function useWheelActions({
     return "list";
   }
 
-  function holdSeek(step: 1 | -1, repeat: boolean) {
-    const state = holdSeekRef.current;
-    const current = playerRef.current;
-    const inert = overlayRef.current != null;
-    const { currentTime, duration } = current.clock.getSnapshot();
-    if (!repeat) {
-      state.base = inert ? undefined : currentTime;
-      state.track = current.index;
-      state.tier = 0;
-    }
-    if (
-      state.base === undefined ||
-      inert ||
-      nowPlaying.isSeeking() ||
-      !current.hasLoaded ||
-      duration <= 0 ||
-      current.index !== state.track
-    ) {
-      return;
-    }
-    const amount = HOLD_SEEK_TIERS[Math.min(state.tier, HOLD_SEEK_TIERS.length - 1)]!;
-    const target = Math.min(Math.max(state.base + step * amount, 0), duration);
-    state.tier += 1;
-    state.base = target > 0 && target < duration ? target : undefined;
-    notify();
-    current.seekTo(target);
+  function seekGate() {
+    seekGateRef.current ??= createLatestSeek((seconds) => playerRef.current.seekTo(seconds));
+    return seekGateRef.current;
   }
+
+  function holdSeek(step: 1 | -1, repeat: boolean) {
+    const current = playerRef.current;
+    const clock = current.clock.getSnapshot();
+    const result = stepHoldSeek(holdSeekRef.current, {
+      repeat,
+      step,
+      inert: overlayRef.current != null,
+      seeking: nowPlaying.isSeeking(),
+      hasLoaded: current.hasLoaded,
+      currentTime: clock.currentTime,
+      duration: clock.duration,
+      index: current.index,
+    });
+    holdSeekRef.current = result.state;
+    const gate = seekGate();
+    if (!repeat) gate.begin();
+    if (result.target === null) return;
+    notify();
+    gate.push(result.target);
+  }
+
+  const visible = useDocumentVisible();
+  const scrubbing = nowPlaying.seeking;
+  const stopHoldSeek = useEffectEvent(() => {
+    holdSeekRef.current = { tier: 0 };
+    seekGateRef.current?.cancel();
+  });
+
+  useEffect(() => {
+    if (!visible) stopHoldSeek();
+  }, [visible]);
+
+  useEffect(() => {
+    if (!scrubbing) return;
+    stopHoldSeek();
+  }, [scrubbing]);
 
   useEffect(() => {
     settingsRef.current = settings;

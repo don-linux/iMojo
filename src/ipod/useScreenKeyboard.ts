@@ -1,7 +1,9 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import { unlockClick } from "../click.ts";
 import type { Frame } from "../menus.ts";
 import { MENU_HOLD_MS, type Overlay } from "./model.ts";
+import { navigationKey, screenKeyActionFor } from "./screenKeys.ts";
+import { useDocumentVisible } from "./useDocumentVisible.ts";
 import type { HoldSeekState, WheelActions } from "./useWheelActions.ts";
 
 type KeyboardInput = {
@@ -24,17 +26,20 @@ export function useScreenKeyboard({
   seeking,
 }: KeyboardInput) {
   const cancelScreenEscapeRef = useRef<() => void>(() => {});
+  const visible = useDocumentVisible();
+  const readFrame = useEffectEvent(() => stackRef.current[stackRef.current.length - 1]);
+  const readOverlay = useEffectEvent(() => overlayRef.current);
+  const readActions = useEffectEvent(() => actions.current);
+  const signalActivity = useEffectEvent(() => {
+    notify();
+  });
+  const clearHoldSeek = useEffectEvent(() => {
+    holdSeekRef.current.base = undefined;
+    holdSeekRef.current.tier = 0;
+  });
 
   useEffect(() => {
-    const handledKeys = new Set([
-      "ArrowDown",
-      "ArrowUp",
-      "ArrowLeft",
-      "ArrowRight",
-      "Enter",
-      " ",
-      "Escape",
-    ]);
+    const handledKeys = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Enter", " ", "Escape"]);
     const nativeRangeKeys = new Set([
       "ArrowDown",
       "ArrowUp",
@@ -58,33 +63,24 @@ export function useScreenKeyboard({
 
     cancelScreenEscapeRef.current = cancelEscape;
 
-    function insideWheel(target: EventTarget | null) {
-      return target instanceof Element && target.closest(".click-wheel") != null;
-    }
-
-    function currentFrame() {
-      return stackRef.current[stackRef.current.length - 1];
-    }
-
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (insideWheel(event.target)) return;
+      const action = screenKeyActionFor(event.target);
+      if (action === "ignore") return;
+      // The wheel listener runs first and stopPropagation when it claims the key.
+      // A focused wheel button that leaves Enter/Space unclaimed keeps the native click.
+      if (event.defaultPrevented || action === "defer") return;
       const name = event.key;
-      if (!event.repeat || name.startsWith("Arrow")) notify();
-      if (overlayRef.current) {
+      if (!event.repeat || name.startsWith("Arrow")) signalActivity();
+      if (readOverlay()) {
         if (handledKeys.has(name) || nativeRangeKeys.has(name)) {
           event.preventDefault();
           event.stopPropagation();
         }
         return;
       }
-      const frame = currentFrame();
-      const mode =
-        frame?.id === "now-playing"
-          ? "now-playing"
-          : frame?.id === "brick"
-            ? "passthrough"
-            : "list";
+      const frame = readFrame();
+      const mode = frame?.id === "now-playing" ? "now-playing" : frame?.id === "brick" ? "passthrough" : "list";
       if (mode === "passthrough") return;
       if (mode === "now-playing" && name !== "Escape") {
         const rangeKey = event.target instanceof HTMLInputElement && nativeRangeKeys.has(name);
@@ -102,7 +98,7 @@ export function useScreenKeyboard({
           event.preventDefault();
           event.stopPropagation();
           unlockClick();
-          actions.current.screenArrow(name === "ArrowDown" ? 1 : -1);
+          readActions().screenArrow(name === "ArrowDown" ? 1 : -1);
           break;
         case "ArrowLeft":
         case "ArrowRight":
@@ -114,7 +110,7 @@ export function useScreenKeyboard({
           event.preventDefault();
           event.stopPropagation();
           unlockClick();
-          if (!event.repeat) actions.current.select();
+          if (!event.repeat) readActions().select();
           break;
         case "Escape":
           event.preventDefault();
@@ -127,7 +123,7 @@ export function useScreenKeyboard({
           escapeTimer = window.setTimeout(() => {
             escapeTimer = undefined;
             escapeFired = true;
-            if (!overlayRef.current) actions.current.menuHold();
+            if (!readOverlay()) readActions().menuHold();
           }, MENU_HOLD_MS);
           break;
       }
@@ -135,7 +131,10 @@ export function useScreenKeyboard({
 
     function onKeyUp(event: KeyboardEvent) {
       if (event.key !== "Escape" || !escapeArmed) return;
-      if (insideWheel(event.target)) return;
+      if (screenKeyActionFor(event.target) !== "handle") {
+        cancelEscape();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       window.clearTimeout(escapeTimer);
@@ -143,7 +142,7 @@ export function useScreenKeyboard({
       const fired = escapeFired;
       escapeArmed = false;
       escapeFired = false;
-      if (!fired) actions.current.menu();
+      if (!fired) readActions().menu();
     }
 
     function onFocusOut() {
@@ -163,15 +162,19 @@ export function useScreenKeyboard({
     };
   }, []);
 
+  const navKey = navigationKey(stack);
   useEffect(() => {
     cancelScreenEscapeRef.current();
-  }, [stack]);
+  }, [navKey]);
+
+  useEffect(() => {
+    if (!visible) cancelScreenEscapeRef.current();
+  }, [visible]);
 
   useEffect(() => {
     if (!seeking) return;
     // Entering scrub mode cancels any hold-seek ramp in progress, like the
     // original controller does when `isSeeking` flips on.
-    holdSeekRef.current.base = undefined;
-    holdSeekRef.current.tier = 0;
+    clearHoldSeek();
   }, [seeking]);
 }

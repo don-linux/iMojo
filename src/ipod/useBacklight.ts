@@ -1,15 +1,38 @@
-import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { loadSettings, saveSettings } from "../settings.ts";
-import { BACKLIGHTS, type Settings } from "../menus.ts";
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { unlockClick } from "../click.ts";
+import type { Settings } from "../menus.ts";
+import { loadSettings, saveSettings, subscribeSettings } from "../settings.ts";
+import { createBacklightController } from "./backlightController.ts";
+
+let externalEcho: Settings | null = null;
+
+function sameSettings(a: Settings, b: Settings) {
+  return (
+    a.shuffle === b.shuffle &&
+    a.repeat === b.repeat &&
+    a.clicker === b.clicker &&
+    a.backlight === b.backlight &&
+    a.backlightChosen === b.backlightChosen &&
+    a.volume === b.volume
+  );
+}
 
 export function useSavedSettings(settings: Settings, settingsRef: RefObject<Settings>) {
   useEffect(() => {
+    if (externalEcho && sameSettings(externalEcho, settings)) return;
+    externalEcho = null;
     const timer = window.setTimeout(() => saveSettings(settings), 200);
     return () => window.clearTimeout(timer);
   }, [settings]);
 
-  useEffect(() => () => saveSettings(settingsRef.current), [settingsRef]);
+  useEffect(
+    () => () => {
+      const latest = settingsRef.current;
+      if (externalEcho && sameSettings(externalEcho, latest)) return;
+      saveSettings(latest);
+    },
+    [settingsRef],
+  );
 }
 
 export function useBacklight(
@@ -17,77 +40,59 @@ export function useBacklight(
   setSettings: Dispatch<SetStateAction<Settings>>,
   settingsRef: RefObject<Settings>,
 ) {
-  const [lit, setLit] = useState(() => loadSettings().backlight === "always_on");
-  const litRef = useRef(lit);
-  const latchRef = useRef(false);
-  const wasLitRef = useRef(false);
-  const firstBacklightRef = useRef(true);
-  const lightTimer = useRef<number | undefined>(undefined);
+  const [controller] = useState(() => createBacklightController(loadSettings().backlight));
+  const lit = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
+  const opening = useRef(true);
 
-  useEffect(() => () => window.clearTimeout(lightTimer.current), []);
+  const followScheme = useEffectEvent((matches: boolean) => {
+    if (settingsRef.current.backlightChosen) return;
+    setSettings((current) => ({
+      ...current,
+      backlight: matches ? "always_on" : "off",
+    }));
+  });
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if (settingsRef.current.backlightChosen) return;
-      setSettings((current) => ({
-        ...current,
-        backlight: media.matches ? "always_on" : "off",
-      }));
-    };
+    const onChange = () => followScheme(media.matches);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, [setSettings]);
+  }, []);
+
+  useEffect(() => controller.mount(), [controller]);
+
+  // StrictMode replays this effect. Reset so the replay does not arm a timed backlight.
+  useEffect(() => {
+    return () => {
+      opening.current = true;
+    };
+  }, []);
 
   useEffect(() => {
-    latchRef.current = false;
-    wasLitRef.current = false;
-    if (firstBacklightRef.current) {
-      firstBacklightRef.current = false;
-      if (settings.backlight === "always_on") setLitState(true);
-      else if (settings.backlight === "off") setLitState(false);
+    if (opening.current) {
+      opening.current = false;
+      controller.syncInitial(settings.backlight);
       return;
     }
-    applyBacklight(settings.backlight);
-  }, [settings.backlight, settings.backlightChosen]);
+    controller.applyMode(settings.backlight);
+  }, [controller, settings.backlight, settings.backlightChosen]);
 
-  function setLitState(value: boolean) {
-    litRef.current = value;
-    setLit(value);
-  }
+  const acceptExternal = useEffectEvent((next: Settings) => {
+    setSettings((current) => {
+      if (sameSettings(current, next)) return current;
+      externalEcho = next;
+      return next;
+    });
+  });
 
-  function applyBacklight(mode: Settings["backlight"]) {
-    window.clearTimeout(lightTimer.current);
-    if (mode === "always_on") {
-      setLitState(true);
-      return;
-    }
-    if (mode === "off") {
-      setLitState(false);
-      return;
-    }
-    const ms = BACKLIGHTS.find((entry) => entry.id === mode)?.ms;
-    setLitState(true);
-    if (ms) lightTimer.current = window.setTimeout(() => setLitState(false), ms);
-  }
+  useEffect(() => subscribeSettings(acceptExternal), []);
 
   function notify() {
-    if (latchRef.current) return;
-    if (wasLitRef.current) {
-      wasLitRef.current = false;
-      if (settingsRef.current.backlight === "always_on") {
-        setLitState(true);
-        return;
-      }
-    }
-    applyBacklight(settingsRef.current.backlight);
+    controller.activity(settingsRef.current.backlight);
   }
 
   function toggleBacklight() {
-    const next = !litRef.current;
-    latchRef.current = next;
-    wasLitRef.current = litRef.current;
-    setLitState(next);
+    controller.toggle();
   }
 
   function pressOnly() {
