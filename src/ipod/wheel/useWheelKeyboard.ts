@@ -190,7 +190,9 @@ export function useWheelKeyboard({
         fromButton = true;
         mapping = hold;
       } else {
-        const rtl = getComputedStyle(root).direction === "rtl";
+        // The wheel itself is forced to dir="ltr"; the page direction lives on its parent.
+        const host = root.parentElement;
+        const rtl = host ? getComputedStyle(host).direction === "rtl" : false;
         mapping = mapWheelKey(event.key, input.scrollTarget, input.selectHoldMs, rtl);
       }
       if (!mapping) return;
