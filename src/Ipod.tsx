@@ -69,14 +69,10 @@ export default function Ipod() {
   const runtime = useNavigationRuntime({
     settings,
     stack: shell.stack,
-    setStack: shell.setStack,
     layers: shell.layers,
     setLayers: shell.setLayers,
     data,
     player,
-    playerRef,
-    settingsRef,
-    dataRef,
   });
   const navigation = useNavigationActions({
     ...runtime,
@@ -156,16 +152,15 @@ export default function Ipod() {
     seeking: nowPlaying.seeking,
   });
 
-  const frame = shell.stack[shell.stack.length - 1] ?? { id: "main" as const, index: 0 };
-
   return (
     <IpodScreen
       lit={backlight.lit}
       overlay={boot.overlay}
       isInert={boot.isInert}
-      frame={frame}
+      frame={runtime.screenFrame}
       layers={shell.layers}
       sheetNodes={runtime.sheetNodes}
+      listRef={runtime.listRef}
       deviceRef={device.deviceRef}
       hud={shell.hud}
       setHud={shell.setHud}

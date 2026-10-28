@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { launch, type BrickGame } from "../brick.ts";
 import { unlockClick } from "../click.ts";
 import type { Player } from "../api/player.ts";
@@ -9,8 +9,10 @@ import { cycleSetting, defaultSettings, isBacklight, type Frame, type Settings }
 import type { MenuData } from "../menus/types.ts";
 import { hudFrom, type Hud } from "./BrickGame.tsx";
 import type { Overlay } from "./model.ts";
-import { listForFrame, topFrame } from "./navigation.ts";
+import { topFrame } from "./navigation.ts";
+import { playPosition } from "./navigationReducer.ts";
 import type { NowPlayingControls } from "./nowPlayingControls.ts";
+import { playbackSlice, selectionView } from "./selection.ts";
 
 type MenuActivateInput = {
   music: MusicLibraryState;
@@ -30,7 +32,7 @@ type MenuActivateInput = {
   pressOnly: () => void;
   push: (id: Frame["id"], param?: string, title?: string) => void;
   pop: () => boolean;
-  playTrack: (trackId: string) => void;
+  playTrack: (position: number) => void;
 };
 
 export function useMenuActivate({
@@ -53,6 +55,23 @@ export function useMenuActivate({
   pop,
   playTrack,
 }: MenuActivateInput) {
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
+  function flashCopied() {
+    window.clearTimeout(copiedTimer.current);
+    setRedirectCopied(true);
+    copiedTimer.current = window.setTimeout(() => {
+      copiedTimer.current = undefined;
+      setRedirectCopied(false);
+    }, 1500);
+  }
+
   function activate() {
     if (overlayRef.current) {
       if (overlayRef.current === "library-error") setErrorDismissed(true);
@@ -76,15 +95,23 @@ export function useMenuActivate({
       nowPlaying.toggleSeek();
       return;
     }
-    const row = listForFrame(frame, settingsRef, dataRef)[frame.index];
+    const view = selectionView(frame, settingsRef.current, dataRef.current, playbackSlice(playerRef.current));
+    const row = view.row;
+    if (frame.id === "playlist" && frame.param && row?.id === "unavailable") {
+      void music.loadPlaylist(frame.param);
+      return;
+    }
     if (!row || row.action === "info") return;
     if (row.action === "open" && row.screen) {
+      if (row.screen === "playlist" && row.param && dataRef.current.playlistDetail[row.param]?.unavailable) {
+        void music.loadPlaylist(row.param);
+      }
       push(row.screen, row.param, row.screenTitle ?? row.title);
       return;
     }
     if (row.action === "play") {
       primeSpotifyPlayback();
-      playTrack(row.id);
+      playTrack(playPosition(view.list, view.index));
       return;
     }
     if (row.action === "cycle") {
@@ -107,9 +134,8 @@ export function useMenuActivate({
       return;
     }
     if (row.action === "spotify-copy-redirect") {
-      void copyText(spotifyRedirectUri()).then(() => {
-        setRedirectCopied(true);
-        window.setTimeout(() => setRedirectCopied(false), 1500);
+      void copyText(spotifyRedirectUri()).then((copied) => {
+        if (copied) flashCopied();
       });
       return;
     }

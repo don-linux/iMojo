@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, type Ref } from "react";
 import type { Settings } from "../menus/model.ts";
 import { rows } from "../menus/rows.ts";
 import type { Frame, MenuData, Row } from "../menus/types.ts";
@@ -55,11 +55,13 @@ export function MenuScreen({
   settings,
   data,
   idPrefix,
+  listRef,
 }: {
   frame: Frame;
   settings: Settings;
   data: MenuData;
   idPrefix?: string;
+  listRef?: Ref<HTMLUListElement>;
 }) {
   // Row contents ignore the highlight index, so a selection change keeps row props stable.
   const screenId = frame.id;
@@ -71,6 +73,7 @@ export function MenuScreen({
   const prefix = idPrefix ?? `menu-item-${screenId}`;
   return (
     <ul
+      ref={listRef}
       className="menu-items"
       data-testid="menu-items"
       role="listbox"

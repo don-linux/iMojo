@@ -1,13 +1,23 @@
-export function scrollListToRow(list: HTMLElement, row: HTMLElement) {
-  const rowHeight = row.offsetHeight;
-  if (rowHeight <= 0) return;
-  const top = row.offsetTop - list.offsetTop - list.clientTop;
-  const index = Math.max(0, Math.round(top / rowHeight));
-  const visible = Math.max(1, Math.floor((list.clientHeight + 0.5) / rowHeight));
-  let start = Math.round(list.scrollTop / rowHeight);
-  if (index < start) start = index;
-  else if (index >= start + visible) start = index - visible + 1;
-  const next = Math.max(0, start) * rowHeight;
-  const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-  list.scrollTop = Math.min(next, maxScroll);
+export const VISIBLE_MENU_ROWS = 6;
+export const MENU_ROW_HEIGHT = 30;
+
+/** Keep the selected row inside the 6-row window, matching scrollIntoView nearest. */
+export function scrollTopForIndex(
+  index: number,
+  rowCount: number,
+  scrollTop: number,
+  rowHeight = MENU_ROW_HEIGHT,
+  visibleRows = VISIBLE_MENU_ROWS,
+) {
+  if (rowCount <= 0 || rowHeight <= 0 || visibleRows <= 0) return 0;
+  const maxStart = Math.max(0, rowCount - visibleRows);
+  const selected = Math.min(Math.max(index, 0), rowCount - 1);
+  let start = Math.round(scrollTop / rowHeight);
+  if (start < 0) start = 0;
+  else if (start > maxStart) start = maxStart;
+  if (selected < start) start = selected;
+  else if (selected >= start + visibleRows) start = selected - visibleRows + 1;
+  if (start < 0) start = 0;
+  else if (start > maxStart) start = maxStart;
+  return start * rowHeight;
 }

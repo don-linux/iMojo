@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { Player } from "../api/player.ts";
 import { artistTracks, playlistTracks, savedTracks } from "../api/selectors.ts";
 import { warmSpotifyPlayer } from "../api/spotify/engine.ts";
@@ -69,6 +69,9 @@ export function useMenuData(music: MusicLibraryState, player: Player, redirectCo
   ]);
 
   const dataRef = useRef(data);
+  useLayoutEffect(() => {
+    dataRef.current = data;
+  }, [data]);
   return { data, dataRef };
 }
 
@@ -81,9 +84,12 @@ export function useConnectedWarmup(music: MusicLibraryState) {
 export function usePlaylistFetch(stack: Frame[], music: MusicLibraryState) {
   const playlistId = stack.at(-1)?.id === "playlist" ? stack.at(-1)?.param : undefined;
   const openPlaylist = music.library.playlists.find((playlist) => playlist.id === playlistId);
+  const known = openPlaylist != null;
+  const loaded = Boolean(openPlaylist?.tracksLoaded);
+  const unavailable = Boolean(openPlaylist?.unavailable);
+  const loadPlaylist = music.loadPlaylist;
   useEffect(() => {
-    if (!playlistId || !openPlaylist || openPlaylist.tracksLoaded || openPlaylist.unavailable)
-      return;
-    void music.loadPlaylist(playlistId);
-  }, [playlistId, openPlaylist, music.loadPlaylist]);
+    if (!playlistId || !known || loaded || unavailable) return;
+    void loadPlaylist(playlistId);
+  }, [playlistId, known, loaded, unavailable, loadPlaylist]);
 }

@@ -7,7 +7,8 @@ import type { Track } from "../api/types.ts";
 import type { Frame, Settings } from "../menus.ts";
 import type { MenuData } from "../menus/types.ts";
 import type { Overlay } from "./model.ts";
-import { listForFrame, topFrame } from "./navigation.ts";
+import { topFrame } from "./navigation.ts";
+import { playbackSlice, selectionView } from "./selection.ts";
 
 type PlaybackInput = {
   music: MusicLibraryState;
@@ -51,12 +52,12 @@ export function usePlaybackCommands({
     return [];
   }
 
-  function playTrack(trackId: string) {
+  function playTrack(position: number) {
     const frame = topFrame(stackRef);
     if (!frame) return;
     const queue = queueFor(frame);
-    const index = queue.findIndex((track) => track.id === trackId);
-    if (index < 0) return;
+    const index = position;
+    if (index < 0 || index >= queue.length) return;
     const current = playerRef.current;
     const snapshot = current.getSnapshot();
     if (snapshot.hasLoaded && snapshot.index === index && sameQueue(snapshot.queue, queue)) {
@@ -77,7 +78,9 @@ export function usePlaybackCommands({
       return;
     }
     const frame = topFrame(stackRef);
-    const row = frame ? listForFrame(frame, settingsRef, dataRef)[frame.index] : undefined;
+    const row = frame
+      ? selectionView(frame, settingsRef.current, dataRef.current, playbackSlice(playerRef.current)).row
+      : undefined;
     if (
       row?.action === "open" &&
       (row.screen === "songs" || row.screen === "playlist" || row.screen === "artist")

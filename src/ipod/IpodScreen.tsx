@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { Dispatch, Ref, RefObject, SetStateAction } from "react";
 import type { Player } from "../api/player.ts";
 import type { BrickGame } from "../brick.ts";
 import type { Frame, MenuData, Settings } from "../menus.ts";
@@ -39,6 +39,8 @@ function SheetBody({
   settings,
   data,
   nowPlaying,
+  listRef,
+  idPrefix,
 }: {
   frame: Frame;
   live: boolean;
@@ -49,6 +51,8 @@ function SheetBody({
   settings: Settings;
   data: MenuData;
   nowPlaying: NowPlayingControls;
+  listRef?: Ref<HTMLUListElement>;
+  idPrefix?: string;
 }) {
   if (frame.id === "brick") {
     return (
@@ -85,7 +89,15 @@ function SheetBody({
       />
     );
   }
-  return <MenuScreen frame={frame} settings={settings} data={data} />;
+  return (
+    <MenuScreen
+      frame={frame}
+      settings={settings}
+      data={data}
+      listRef={listRef}
+      idPrefix={idPrefix}
+    />
+  );
 }
 
 export function IpodScreen({
@@ -95,6 +107,7 @@ export function IpodScreen({
   frame,
   layers,
   sheetNodes,
+  listRef,
   deviceRef,
   hud,
   setHud,
@@ -117,6 +130,7 @@ export function IpodScreen({
   frame: Frame;
   layers: SheetLayer[];
   sheetNodes: RefObject<Map<number, HTMLDivElement>>;
+  listRef?: Ref<HTMLUListElement>;
   deviceRef: RefObject<HTMLDivElement | null>;
   hud: Hud;
   setHud: Dispatch<SetStateAction<Hud>>;
@@ -181,6 +195,8 @@ export function IpodScreen({
                                 settings={settings}
                                 data={data}
                                 nowPlaying={nowPlaying}
+                                listRef={layer.live ? listRef : undefined}
+                                idPrefix={layer.live ? undefined : `menu-item-${layer.id}-${shown.id}`}
                               />
                             </div>
                           );
