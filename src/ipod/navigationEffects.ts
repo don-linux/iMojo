@@ -7,6 +7,7 @@ import { MENU_ROW_HEIGHT, scrollTopForIndex } from "./listScroll.ts";
 import type { PendingSlide, SheetLayer } from "./model.ts";
 import { mainFrame, type NavFrame, type Selection } from "./navigationReducer.ts";
 import { beginSlide, haltSlide, type SlideHandle } from "./screenSlide.ts";
+import { dropDepartedSheet, pruneStaleSheets, slideCleanupPlan } from "./slideHandoff.ts";
 import { playbackSlice, selectionView } from "./selection.ts";
 
 export function useDeviceEnvironment() {
@@ -109,10 +110,10 @@ export function useNavigationRuntime({
 
     const drop = (id: number) => {
       if (cancelled || activeGen.current !== gen || !mounted.current) return;
-      dropped = true;
       setLayers((current) => {
-        if (!current.some((layer) => layer.id === id && !layer.live)) return current;
-        const next = current.filter((layer) => layer.id !== id);
+        const next = dropDepartedSheet(current, id);
+        if (next === current) return current;
+        dropped = true;
         layersRef.current = next;
         return next;
       });
@@ -124,25 +125,32 @@ export function useNavigationRuntime({
       );
     }
     if (enteringNode) {
-      const handle = beginSlide(enteringNode, { back: pending.back, direction: "in" });
-      handles.push(handle);
-      const stolen = handle.stolen;
-      if (stolen) {
-        queueMicrotask(() => {
-          if (cancelled || activeGen.current !== gen) return;
-          for (const [id, node] of sheetNodes.current) {
-            if (node === stolen) drop(id);
-          }
-        });
-      }
+      handles.push(beginSlide(enteringNode, { back: pending.back, direction: "in" }));
+    }
+
+    // Stale sheets stay mounted through beginSlide so it can steal their motion.
+    if (pruneStaleSheets(layersRef.current, pending.leavingId) !== layersRef.current) {
+      setLayers((current) => {
+        const next = pruneStaleSheets(current, pending.leavingId);
+        if (next === current) return current;
+        dropped = true;
+        layersRef.current = next;
+        return next;
+      });
     }
 
     return () => {
-      cancelled = true;
+      const plan = slideCleanupPlan({
+        dropped,
+        generation: gen,
+        pendingGen: pendingSlide.current?.gen ?? null,
+      });
+      if (plan.cancelDrop) cancelled = true;
+      if (!plan.halt) return;
       for (const handle of handles) handle.cancel();
       haltSlide(leavingNode);
       haltSlide(enteringNode);
-      if (!dropped && pendingSlide.current == null) pendingSlide.current = pending;
+      if (plan.restorePending) pendingSlide.current = pending;
     };
   }, [layers, setLayers]);
 

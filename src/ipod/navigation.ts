@@ -23,6 +23,7 @@ import {
   type Selection,
 } from "./navigationReducer.ts";
 import { haltSlide } from "./screenSlide.ts";
+import { stackEnteringSheet } from "./slideHandoff.ts";
 import {
   enteringSelection,
   memoryOf,
@@ -147,12 +148,12 @@ export function useNavigationActions({
       setLayers(next);
       return;
     }
-    const next = [
-      ...layersRef.current.map((layer) =>
-        layer.id === live.id ? { ...layer, live: false, frame: leaving, game: leavingGame } : layer,
-      ),
+    const next = stackEnteringSheet(
+      layersRef.current,
+      live.id,
       { id: enteringId, frame: entering, game: null, live: true },
-    ];
+      (layer) => ({ ...layer, live: false, frame: leaving, game: leavingGame }),
+    );
     layersRef.current = next;
     slideGen.current += 1;
     setPending({ gen: slideGen.current, back, leavingId: live.id, enteringId });

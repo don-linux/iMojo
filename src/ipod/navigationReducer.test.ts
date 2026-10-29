@@ -144,6 +144,23 @@ test("queue end keeps a buried menu selection that is not now playing", () => {
   assert.deepEqual(ended.remembered.get("songs:"), { index: 4, rowId: "t" });
 });
 
+test("queue end leaves main on the row that opened playback", () => {
+  const state: NavState = {
+    stack: [
+      { id: "main", index: 2, rowId: "songs", followPlaying: false },
+      { id: "now-playing", index: 0, followPlaying: true },
+    ],
+    remembered: new Map([["main:", { index: 2, rowId: "songs" }]]),
+  };
+  const next = navigationReducer(state, { type: "queueEnded" });
+  assert.equal(next.stack.length, 1);
+  assert.equal(next.stack[0]?.id, "main");
+  assert.equal(next.stack[0]?.index, 2);
+  assert.equal(next.stack[0]?.rowId, "songs");
+  assert.equal(next.stack[0]?.followPlaying, true);
+  assert.deepEqual(next.remembered.get("main:"), { index: 2, rowId: "songs" });
+});
+
 test("queue end is a no-op when nothing points at now playing", () => {
   const state = initialNavState();
   assert.equal(navigationReducer(state, { type: "queueEnded" }), state);

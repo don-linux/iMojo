@@ -66,9 +66,9 @@ export function createBootClock() {
   }
 
   function arm() {
-    if (!online || !visible || booted) return;
+    if (!online || !visible) return;
     const now = Date.now();
-    if (!minElapsed && minTimer === undefined) {
+    if (!booted && !minElapsed && minTimer === undefined) {
       minDeadline = now + minRemaining;
       minTimer = window.setTimeout(() => {
         minTimer = undefined;
@@ -168,7 +168,9 @@ export function createBootClock() {
     markBooted() {
       if (booted) return;
       booted = true;
-      clearTimers();
+      // Max hold still has to latch, including after a hide that paused it.
+      window.clearTimeout(minTimer);
+      minTimer = undefined;
     },
   };
 }

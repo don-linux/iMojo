@@ -195,7 +195,7 @@ function endQueue(state: NavState): NavState {
   const base = pop ? state.stack.slice(0, -1) : state.stack;
   const stack = base.map((frame, index) => {
     const revealed = pop && index === base.length - 1;
-    if ((revealed && frame.id === "main") || frame.rowId === "now-playing" || (revealed && selectedNowPlaying(frame))) {
+    if (frame.rowId === "now-playing" || (revealed && selectedNowPlaying(frame))) {
       return parked(frame);
     }
     if (revealed && frame.followPlaying !== true) return { ...frame, followPlaying: true };
