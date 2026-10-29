@@ -1,6 +1,7 @@
 import { gestureAction } from "./clickGesture.ts";
 import { isPendingFresh, rebaseAfterResume, scheduleClick } from "./clickScheduler.ts";
 import type {
+  ClickActivation,
   ClickBuffer,
   ClickContext,
   ClickContextCtor,
@@ -48,15 +49,60 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
     setTimeout(() => {
       if (openGesture === token) openGesture = null;
     }, 0);
+    if (ios()) {
+      onIosGesture(event);
+      return;
+    }
     const action = gestureAction(event);
     if (action === "unlock") unlock();
     else if (action === "construct") ensureContext();
   }
 
+  function onIosGesture(event: Event) {
+    const action = gestureAction(event);
+    if (action === "construct") {
+      ensureContext();
+      return;
+    }
+    if (action === "unlock") armIos();
+  }
+
+  // The first resume has to happen while transient activation is current.
+  // A later event in the same gesture must not start a second silent frame.
+  function armIos() {
+    if (!activation().active) return;
+    if (primed && context && context.state !== "closed") return;
+    try {
+      deps.claimPlayback?.();
+    } catch {
+      // The session type is optional. The click still tries to start.
+    }
+    const ctx = ensureContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended" || ctx.state === "interrupted") resume(ctx);
+    if (!primed) {
+      startSilent(ctx);
+      primed = true;
+    }
+    if (ctx.state === "running") setGestures(false);
+  }
+
   function onPageReturn(event: Event) {
     if (event.type === "visibilitychange" && deps.doc?.visibilityState === "hidden") return;
+    if (ios()) {
+      onIosPageReturn();
+      return;
+    }
     if (context) resumeIfNeeded(context);
     if (!context || context.state !== "running") setGestures(true);
+  }
+
+  function onIosPageReturn() {
+    const ctx = context;
+    if (ctx && activation().sticky && (ctx.state === "suspended" || ctx.state === "interrupted")) {
+      resume(ctx);
+    }
+    if (!ctx || ctx.state !== "running") setGestures(true);
   }
 
   function resume(ctx: ClickContext) {
@@ -76,8 +122,14 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
     return deps.isActivated?.() ?? true;
   }
 
-  // iOS's silent switch mutes Web Audio by design. Setting
-  // navigator.audioSession.type = "playback" would override it page-wide.
+  function ios() {
+    return deps.isIos === true;
+  }
+
+  function activation(): ClickActivation {
+    return deps.activation?.() ?? { active: false, sticky: false };
+  }
+
   function construct(Ctor: ClickContextCtor): ClickContext | null {
     try {
       return new Ctor({ latencyHint: "interactive" });
@@ -243,7 +295,28 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
     if (ctx.state === "running") setGestures(false);
   }
 
+  function playClickIos() {
+    const ctx = context;
+    if (ctx?.state === "running") {
+      if (buffer) {
+        pendingAt = null;
+        playScheduled();
+        return;
+      }
+      prepareBuffer(ctx);
+      pendingAt = deps.now();
+      return;
+    }
+    // A finger's clicks happen on pointermove, before transient activation.
+    if (!activation().active) return;
+    pendingAt = deps.now();
+  }
+
   function playClick() {
+    if (ios()) {
+      playClickIos();
+      return;
+    }
     const ctx = ensureContext();
     if (!ctx) return;
     if (!userActivated()) {
@@ -260,12 +333,21 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
   }
 
   function unlockClick() {
+    if (ios()) {
+      armIos();
+      return;
+    }
     const early = openGesture !== null && gestureAction(openGesture) === "construct";
     if (early || !userActivated()) {
       ensureContext();
       return;
     }
     unlock();
+  }
+
+  function unlockDragEnd() {
+    if (!ios()) return;
+    armIos();
   }
 
   function dispose() {
@@ -285,5 +367,5 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
   setGestures(true);
   bind(deps.doc, "visibilitychange", onPageReturn, false, true);
   bind(deps.win, "pageshow", onPageReturn, false, true);
-  return { playClick, unlockClick, dispose };
+  return { playClick, unlockClick, unlockDragEnd, dispose };
 }

@@ -1,6 +1,12 @@
 import { createClickPlayer } from "./clickPlayer.ts";
 import type { ClickContextCtor } from "./clickTypes.ts";
 
+export type IosClickProbe = {
+  active: boolean;
+  sticky: boolean;
+  claims: number;
+};
+
 export const GESTURES = ["pointerdown", "pointerup", "touchend", "click", "keydown"];
 
 export function clickWav(): ArrayBuffer {
@@ -158,7 +164,11 @@ export function createTarget() {
   };
 }
 
-export function harness(loadBytes?: () => Promise<ArrayBuffer | null>, isActivated?: () => boolean) {
+export function harness(
+  loadBytes?: () => Promise<ArrayBuffer | null>,
+  isActivated?: () => boolean,
+  ios?: IosClickProbe,
+) {
   const contexts: Fake[] = [];
   const doc = createTarget();
   const win = createTarget();
@@ -174,6 +184,15 @@ export function harness(loadBytes?: () => Promise<ArrayBuffer | null>, isActivat
     now: () => now,
     loadBytes: loadBytes ?? (async () => clickWav()),
     ...(isActivated ? { isActivated } : {}),
+    ...(ios
+      ? {
+          isIos: true,
+          activation: () => ({ active: ios.active, sticky: ios.sticky }),
+          claimPlayback: () => {
+            ios.claims += 1;
+          },
+        }
+      : {}),
   });
   return {
     contexts,

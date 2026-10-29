@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createClickPlayer, playClick, unlockClick } from "./clickPlayer.ts";
+import { createClickPlayer, isIosWebKit, playClick, unlockClick } from "./clickPlayer.ts";
 import {
   audible,
   armed,
@@ -269,6 +269,141 @@ test("silent start uses the context clock after it has advanced", () => {
   const primed = ctx.sources[ctx.sources.length - 1];
   assert.equal(primed?.buffer?.length, 1);
   assert.equal(primed?.started, 4.25);
+});
+
+test("iOS webkit detection is iPhone, iPad, iPod, and desktop iPad", () => {
+  assert.equal(isIosWebKit({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)" }), true);
+  assert.equal(isIosWebKit({ userAgent: "Mozilla/5.0 (iPad; CPU OS 26_0 like Mac OS X)" }), true);
+  assert.equal(isIosWebKit({ userAgent: "Mozilla/5.0 (iPod touch; CPU iPhone OS 26_0 like Mac OS X)" }), true);
+  assert.equal(isIosWebKit({
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) CriOS/140.0.0.0",
+  }), true);
+  assert.equal(isIosWebKit({
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15",
+    platform: "MacIntel",
+    maxTouchPoints: 5,
+  }), true);
+  assert.equal(isIosWebKit({
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15",
+    platform: "MacIntel",
+    maxTouchPoints: 0,
+  }), false);
+  assert.equal(isIosWebKit({
+    userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36",
+    platform: "Linux armv8l",
+    maxTouchPoints: 5,
+  }), false);
+  assert.equal(isIosWebKit({
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0",
+    platform: "Win32",
+    maxTouchPoints: 10,
+  }), false);
+});
+
+test("iOS ignores sticky activation until a transient gesture", async () => {
+  const ios = { active: false, sticky: true, claims: 0 };
+  const box = harness(undefined, undefined, ios);
+  box.win.dispatch("pageshow");
+  assert.equal(box.contexts.length, 0);
+  box.doc.dispatch("pointerdown", { pointerType: "touch" });
+  box.player.playClick();
+  box.player.unlockClick();
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  const ctx = box.contexts[0];
+  assert.equal(box.contexts.length, 1);
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(ctx.sources.length, 0);
+  assert.equal(ios.claims, 0);
+  ctx.setState("running");
+  await drain();
+  assert.equal(audible(ctx).length, 0);
+});
+
+test("iOS pointerup claims playback, resumes, and primes one frame", async () => {
+  const ios = { active: true, sticky: false, claims: 0 };
+  const box = harness(undefined, undefined, ios);
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  const ctx = box.contexts[0];
+  assert.equal(ios.claims, 1);
+  assert.equal(box.contexts.length, 1);
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+  assert.equal(ctx.sources[0]?.buffer?.length, 1);
+  assert.equal(audible(ctx).length, 0);
+  box.doc.dispatch("touchend");
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  assert.equal(box.contexts.length, 1);
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+  assert.equal(ios.claims, 1);
+
+  await drain();
+  ctx.setState("running");
+  ios.active = false;
+  ios.sticky = true;
+  box.player.playClick();
+  assert.equal(audible(ctx).length, 1);
+
+  const resumed = ctx.resumeCalls;
+  box.win.dispatch("pageshow");
+  assert.equal(ctx.resumeCalls, resumed);
+  ctx.setState("interrupted");
+  ios.sticky = false;
+  box.win.dispatch("pageshow");
+  assert.equal(ctx.resumeCalls, resumed);
+  ios.sticky = true;
+  box.win.dispatch("pageshow");
+  assert.equal(ctx.resumeCalls, resumed + 1);
+});
+
+test("iOS keeps one click that happens during transient activation before running", async () => {
+  const ios = { active: true, sticky: true, claims: 0 };
+  const box = harness(undefined, undefined, ios);
+  box.doc.dispatch("pointerdown", { pointerType: "touch" });
+  box.at(20);
+  box.player.playClick();
+  const ctx = box.contexts[0];
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(ctx.sources.length, 0);
+  ctx.setState("running");
+  await drain();
+  assert.equal(audible(ctx).length, 1);
+});
+
+test("iOS keeps a click that arrives while the buffer is still loading", async () => {
+  const ios = { active: true, sticky: true, claims: 0 };
+  const box = harness(undefined, undefined, ios);
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  const ctx = box.contexts[0];
+  ctx.setState("running");
+  ios.active = false;
+  box.at(10);
+  box.player.playClick();
+  await drain();
+  assert.equal(audible(ctx).length, 1);
+  assert.equal(audible(ctx)[0]?.started, 0.08);
+});
+
+test("iOS mouse pointerdown unlocks and a drag end does not prime twice", () => {
+  const ios = { active: true, sticky: true, claims: 0 };
+  const box = harness(undefined, undefined, ios);
+  box.doc.dispatch("pointerdown", { pointerType: "mouse" });
+  const ctx = box.contexts[0];
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+  box.doc.dispatch("pointerup", { pointerType: "mouse" });
+  box.player.unlockDragEnd();
+  assert.equal(box.contexts.length, 1);
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+  assert.equal(ios.claims, 1);
+});
+
+test("drag end does not unlock outside iOS", () => {
+  const box = harness();
+  box.player.unlockDragEnd();
+  box.doc.dispatch("pointerup", { pointerType: "mouse" });
+  assert.equal(box.contexts.length, 0);
 });
 
 test("gestures open no AudioContext while the clicker is off", () => {
