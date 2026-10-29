@@ -45,6 +45,7 @@ export type ClickPlayerDeps = {
   win: ClickListenable | null;
   now: () => number;
   loadBytes: () => Promise<ArrayBuffer | null>;
+  isActivated?: () => boolean;
 };
 
 export type ClickPlayer = { playClick: () => void; unlockClick: () => void; dispose: () => void };

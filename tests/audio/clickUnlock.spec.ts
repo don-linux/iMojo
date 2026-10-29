@@ -5,18 +5,17 @@ import { boot, waitForLibrary } from "../visual/seed.ts";
  * Proves the click player's AudioContext is constructed from a real user gesture
  * and that the page never builds a second one.
  *
+ * Touch `pointerdown` may construct the context so the click buffer can decode,
+ * but resume and the silent prime wait for a real activation: trusted `pointerup`
+ * or `touchend`. The context must be running within 1s of that first touchend.
+ * A mouse `pointerdown` is activation, so the same work happens there.
+ *
  * `src/settings.ts` defaults `clicker` to "on" (`defaultSettings` / `parseSettings`),
  * and `tests/visual/library.ts` `settingsSeed` stores the same value. Boot uses that
  * seed, so rotating the wheel calls `playClick()`.
  *
  * Headless Chrome can lack an audio output device. This file does not pass
- * `--autoplay-policy`. If `resume()` never reaches "running" (try
- * `--use-fake-ui-for-media-stream` before accepting that), click scheduling
- * cannot be observed: the test then only asserts that `resume()` ran
- * synchronously inside the trusted `touchend` (touch) or `pointerdown` (mouse),
- * and that `__ctxCount` stays 1. A context created during the gesture may already
- * be "running", in which case the player skips `resume()` and this file requires
- * the silent start plus later click starts instead.
+ * `--autoplay-policy`.
  */
 
 const VIEWPORT = { width: 390, height: 844 };
@@ -25,7 +24,8 @@ const RING_RADIUS_RATIO = 0.62;
 const ARC_DEGREES = 120;
 const STEP_DEGREES = 10;
 
-type ResumeRecord = { trusted: boolean; type: string | null; state: string };
+type GestureHit = { trusted: boolean; type: string | null };
+type ResumeRecord = GestureHit & { state: string };
 type BuiltDuring = { type: string | null; trusted: boolean };
 
 type Probe = {
@@ -34,6 +34,7 @@ type Probe = {
   silentStarts: number;
   states: string[];
   resumes: ResumeRecord[];
+  silentMarks: GestureHit[];
   state: string | null;
   bufferFrames: number[];
   trusted: string[];
@@ -50,6 +51,7 @@ declare global {
     __silentStarts: number;
     __states: string[];
     __resumes: ResumeRecord[];
+    __silentMarks: GestureHit[];
     __audioState: string | null;
     __bufferFrames: number[];
     __trusted: string[];
@@ -66,6 +68,7 @@ async function installAudioProbe(page: Page) {
     host.__silentStarts = 0;
     host.__states = [];
     host.__resumes = [];
+    host.__silentMarks = [];
     host.__audioState = null;
     host.__bufferFrames = [];
     host.__trusted = [];
@@ -145,8 +148,17 @@ async function installAudioProbe(page: Page) {
         const start = source.start.bind(source);
         source.start = ((...args: Parameters<AudioBufferSourceNode["start"]>) => {
           const length = source.buffer?.length ?? 0;
+          const active = host.__activeGesture;
           if (length > 1) host.__clickStarts += 1;
-          else if (length === 1) host.__silentStarts += 1;
+          else if (length === 1) {
+            host.__silentStarts += 1;
+            if (host.__silentMarks.length < 40) {
+              host.__silentMarks.push({
+                trusted: active?.trusted === true,
+                type: active?.type ?? null,
+              });
+            }
+          }
           return start(...args);
         }) as AudioBufferSourceNode["start"];
         return source;
@@ -181,6 +193,7 @@ async function readProbe(page: Page): Promise<Probe> {
     silentStarts: window.__silentStarts,
     states: window.__states.slice(),
     resumes: window.__resumes.map((entry) => ({ ...entry })),
+    silentMarks: window.__silentMarks.map((entry) => ({ ...entry })),
     state: window.__audioState,
     bufferFrames: window.__bufferFrames.slice(),
     trusted: window.__trusted.slice(),
@@ -204,6 +217,10 @@ async function becameRunning(page: Page) {
 function assertTrustedResume(probe: Probe, type: string) {
   const matched = probe.resumes.some((entry) => entry.trusted && entry.type === type);
   expect(matched, `resume() inside trusted ${type}: ${probeText(probe)}`).toBe(true);
+}
+
+function duringTouchUnlock(marks: GestureHit[]) {
+  return marks.some((mark) => mark.trusted && (mark.type === "pointerup" || mark.type === "touchend"));
 }
 
 async function ringBox(page: Page): Promise<RingBox> {
@@ -338,10 +355,13 @@ test.describe("touch unlock", () => {
       await touchDrag(page, client, ARC_DEGREES);
       const probe = await readProbe(page);
       expect(probe.ctxCount, probeText(probe)).toBe(1);
-      expect(probe.silentStarts, probeText(probe)).toBeGreaterThanOrEqual(1);
       expect(probe.builtDuring, probeText(probe)).toEqual({ type: "pointerdown", trusted: true });
       expect(probe.trusted, probeText(probe)).toContain("pointerdown");
       expect(probe.trusted, probeText(probe)).toContain("touchend");
+      expect(duringTouchUnlock(probe.resumes), `resume() inside trusted pointerup/touchend: ${probeText(probe)}`).toBe(true);
+      expect(duringTouchUnlock(probe.silentMarks), `silent start inside trusted pointerup/touchend: ${probeText(probe)}`).toBe(true);
+      expect(probe.resumes.some((entry) => entry.type === "pointerdown"), probeText(probe)).toBe(false);
+      expect(probe.silentMarks.some((entry) => entry.type === "pointerdown"), probeText(probe)).toBe(false);
 
       const running = await becameRunning(page);
       const after = await readProbe(page);
@@ -349,13 +369,10 @@ test.describe("touch unlock", () => {
         type: "audio",
         description: running ? "touch context running" : `touch context ${after.state ?? "missing"}`,
       });
-      if (running) {
-        expect(after.state, probeText(after)).toBe("running");
-        await waitForClickBuffer(page);
-      } else {
-        assertTrustedResume(after, "touchend");
-        expect(errors, probeText(after)).toEqual([]);
-      }
+      expect(running, probeText(after)).toBe(true);
+      expect(after.state, probeText(after)).toBe("running");
+      await waitForClickBuffer(page);
+      expect(errors, probeText(after)).toEqual([]);
     });
 
     const running = (await readProbe(page)).state === "running";

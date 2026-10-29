@@ -158,7 +158,7 @@ export function createTarget() {
   };
 }
 
-export function harness(loadBytes?: () => Promise<ArrayBuffer | null>) {
+export function harness(loadBytes?: () => Promise<ArrayBuffer | null>, isActivated?: () => boolean) {
   const contexts: Fake[] = [];
   const doc = createTarget();
   const win = createTarget();
@@ -173,6 +173,7 @@ export function harness(loadBytes?: () => Promise<ArrayBuffer | null>) {
     win,
     now: () => now,
     loadBytes: loadBytes ?? (async () => clickWav()),
+    ...(isActivated ? { isActivated } : {}),
   });
   return {
     contexts,

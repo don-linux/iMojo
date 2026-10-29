@@ -58,7 +58,7 @@ test("resume and the silent start both happen inside unlock", () => {
   assert.equal(ctx.resumeCalls, 1);
   assert.equal(ctx.sources.length, 1);
   assert.equal(ctx.sources[0].buffer?.length, 1);
-  assert.equal(ctx.sources[0].started, 0);
+  assert.equal(ctx.sources[0].started, ctx.currentTime);
   assert.equal(ctx.sources[0].connected, ctx.destination);
   ctx.resumeMode = "throw";
   assert.doesNotThrow(() => box.player.unlockClick());
@@ -197,4 +197,76 @@ test("retries a failed byte load and then caches the buffer", async () => {
   assert.equal(attempts, 2);
   assert.equal(box.contexts[0].buffers.some((buffer) => buffer.length > 1), true);
   box.player.dispose();
+});
+
+test("touch pointerdown only constructs; pointerup, touchend, and click unlock", () => {
+  const box = harness(undefined, () => false);
+  box.doc.dispatch("pointerdown", { pointerType: "touch" });
+  box.player.unlockClick();
+  box.player.playClick();
+  const ctx = box.contexts[0];
+  assert.equal(box.contexts.length, 1);
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(ctx.sources.length, 0);
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources[0]?.buffer?.length, 1);
+  box.doc.dispatch("touchend");
+  assert.equal(ctx.resumeCalls, 2);
+  box.doc.dispatch("click");
+  assert.equal(ctx.resumeCalls, 3);
+  assert.equal(ctx.sources.length, 3);
+});
+
+test("touch pointerdown stays unprimed while activation is already current", () => {
+  const box = harness(undefined, () => true);
+  box.doc.dispatch("pointerdown", { pointerType: "touch" });
+  box.player.unlockClick();
+  const ctx = box.contexts[0];
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(ctx.sources.length, 0);
+  ctx.setState("running");
+  assert.equal(armed(box.doc), true);
+  box.doc.dispatch("pointerup", { pointerType: "touch" });
+  assert.equal(ctx.resumeCalls, 1);
+  const primed = ctx.sources[ctx.sources.length - 1];
+  assert.equal(primed?.buffer?.length, 1);
+  assert.equal(armed(box.doc), false);
+});
+
+test("mouse pointerdown unlocks and a mouse pointerup does not", () => {
+  const box = harness(undefined, () => false);
+  box.doc.dispatch("pointerdown", { pointerType: "mouse" });
+  const ctx = box.contexts[0];
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+  box.doc.dispatch("pointerup", { pointerType: "mouse" });
+  assert.equal(ctx.resumeCalls, 1);
+  assert.equal(ctx.sources.length, 1);
+});
+
+test("inactive playClick stores a pending click and does not resume", async () => {
+  const box = harness(undefined, () => false);
+  box.at(10);
+  box.player.playClick();
+  const ctx = box.contexts[0];
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(ctx.sources.length, 0);
+  await drain();
+  box.at(20);
+  ctx.setState("running");
+  assert.equal(ctx.resumeCalls, 0);
+  assert.equal(audible(ctx).length, 1);
+});
+
+test("silent start uses the context clock after it has advanced", () => {
+  const box = harness();
+  box.player.unlockClick();
+  const ctx = box.contexts[0];
+  ctx.currentTime = 4.25;
+  ctx.setState("interrupted");
+  box.player.unlockClick();
+  const primed = ctx.sources[ctx.sources.length - 1];
+  assert.equal(primed?.buffer?.length, 1);
+  assert.equal(primed?.started, 4.25);
 });
