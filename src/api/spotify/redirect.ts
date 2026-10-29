@@ -10,15 +10,23 @@ export function openedAsLocalhost(location: Location = window.location) {
 
 export async function copyText(value: string) {
   try {
-    await navigator.clipboard.writeText(value);
-    return;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
   } catch {
+    // The async clipboard API rejects without a gesture; the legacy path can still work.
+  }
+  try {
     const area = document.createElement("textarea");
     area.value = value;
     area.setAttribute("readonly", "");
     document.body.appendChild(area);
     area.select();
-    document.execCommand("copy");
+    const copied = document.execCommand("copy");
     area.remove();
+    return copied;
+  } catch {
+    return false;
   }
 }

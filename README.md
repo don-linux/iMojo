@@ -2,16 +2,31 @@
 
 Un iPod en una sola página. La rueda gira con el dedo o el mouse, el menú se mueve como en el aparato, y no hay canciones ni tipografía de terceros.
 
-La pantalla usa la pila del sistema (`system-ui`, Helvetica, Arial). El clic es un tick generado en el momento. La textura de la rueda se dibuja en un canvas.
+La pantalla usa la pila del sistema (`system-ui`, Helvetica, Arial). El clic es una muestra WAV. La textura de la rueda se dibuja en un canvas.
 
 ## Cómo correrlo
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Abre [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+## Verificación
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+La puerta de píxeles necesita el servidor de desarrollo ya corriendo:
+
+```bash
+IPOD_URL=http://127.0.0.1:3000 pnpm test:visual
+```
 
 ## Cómo se usa
 

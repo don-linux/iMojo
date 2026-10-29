@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useEffectEvent, useRef, type CSSProperties } from "react";
 
 type ProgressBarProps = {
   value: number;
@@ -14,6 +14,10 @@ type ProgressBarProps = {
   onBlur?: () => void;
 };
 
+function finiteLimit(max: number) {
+  return Number.isFinite(max) ? Math.max(0, max) : 0;
+}
+
 export function ProgressBar({
   value,
   max,
@@ -28,18 +32,20 @@ export function ProgressBar({
   onBlur,
 }: ProgressBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const changeRef = useRef(onChange);
-  const percent = max > 0 ? Math.min(100, (value * 100) / max) : 0;
+  const limit = finiteLimit(max);
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const percent = limit > 0 ? Math.min(100, (safeValue * 100) / limit) : 0;
   const style = variant === "marker" ? { left: `${percent}%` } : { width: `${percent}%` };
 
-  useEffect(() => {
-    changeRef.current = onChange;
+  const commitChange = useEffectEvent((next: number) => {
+    if (!Number.isFinite(next)) return;
+    onChange?.(next);
   });
 
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const commit = () => changeRef.current?.(input.valueAsNumber);
+    const commit = () => commitChange(input.valueAsNumber);
     input.addEventListener("change", commit);
     return () => input.removeEventListener("change", commit);
   }, [label]);
@@ -62,15 +68,18 @@ export function ProgressBar({
           type="range"
           tabIndex={0}
           min={0}
-          max={Math.max(0, max)}
+          max={limit}
           step={1}
-          value={value}
+          value={safeValue}
           disabled={disabled}
           aria-label={label}
           aria-valuetext={valueText}
-          onInput={(event) => onInput?.(event.currentTarget.valueAsNumber)}
-          // The real commit is handled by the native `change` listener above;
-          // React only needs an onChange to treat the range as controlled.
+          onInput={(event) => {
+            const next = event.currentTarget.valueAsNumber;
+            if (!Number.isFinite(next)) return;
+            onInput?.(next);
+          }}
+          // React needs onChange so the range stays controlled; commit listens to the native event.
           onChange={() => {}}
           onFocus={onFocus}
           onBlur={onBlur}

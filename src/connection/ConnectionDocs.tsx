@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { copyText, openedAsLocalhost, spotifyRedirectUri } from "../api/spotify/redirect.ts";
 import "./connection.css";
 
@@ -6,11 +6,24 @@ export function ConnectionDocs() {
   const redirect = spotifyRedirectUri();
   const [copied, setCopied] = useState(false);
   const localhost = openedAsLocalhost();
+  const copiedTimer = useRef<number | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   async function copyRedirect() {
-    await copyText(redirect);
+    const ok = await copyText(redirect);
+    if (!ok) return;
+    window.clearTimeout(copiedTimer.current);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    copiedTimer.current = window.setTimeout(() => {
+      copiedTimer.current = undefined;
+      setCopied(false);
+    }, 1500);
   }
 
   return (

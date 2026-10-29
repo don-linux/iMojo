@@ -1,0 +1,106 @@
+/* 180px list / 30px rows (six visible rows) is relied on by the JS row-scroll math. */
+.menu-items {
+  height: 180px;
+  box-sizing: border-box;
+  margin: 1.7px 0 0;
+  padding: 0 5px;
+  overflow: hidden auto;
+  overscroll-behavior: none;
+  list-style: none;
+  opacity: var(--ipod-screen-opacity, 1);
+  scrollbar-color: #484647 rgba(72, 70, 71, 0.1);
+  scrollbar-width: auto;
+}
+
+.menu-items::-webkit-scrollbar {
+  width: 12px;
+}
+
+.menu-items::-webkit-scrollbar-track {
+  border: 1px solid #484647;
+  background-color: rgba(72, 70, 71, 0.1);
+}
+
+.menu-items::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-color: #484647;
+  background-clip: padding-box;
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 3px 12px 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-item.centered {
+  justify-content: center;
+}
+
+.menu-item.selected:not([data-action="info"]) {
+  background-color: #484647;
+  color: var(--ipod-faux-backlit, #afaea7);
+}
+
+.item-title {
+  flex: 0 1 auto;
+  min-width: 2.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  overflow: hidden;
+  color: #333;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-item.selected .item-value {
+  color: inherit;
+}
+
+.chevron {
+  --flip: 1;
+  flex: none;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  margin-left: auto;
+  border-top: 3px solid #333;
+  border-right: 3px solid #333;
+  transform: rotate(calc(45deg * var(--flip))) translateY(-2px);
+}
+
+.menu-item.selected .chevron {
+  border-color: var(--ipod-faux-backlit, #b9b9b3);
+}
+
+.item-value + .chevron {
+  margin-left: 0;
+}
+
+.brick-screen {
+  height: 180px;
+  margin-top: 1.7px;
+  padding: 0 5px 4px;
+  box-sizing: border-box;
+}
+
+.brick-screen canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

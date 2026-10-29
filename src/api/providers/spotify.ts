@@ -9,15 +9,23 @@ import {
 } from "../spotify/library.ts";
 import {
   disconnectSpotify,
+  isSpotifyClientId,
   readClientId,
   readProfile,
   readTokens,
   writeClientId,
 } from "../spotify/storage.ts";
 
+const CLIENT_ID_ERROR = "Client ID must be 32 hex characters";
+const STORAGE_BLOCKED = "This browser is blocking site storage";
+
 function connection(): ProviderConnection {
-  if (!readClientId()) return { status: "setup", account: null, error: null };
+  const clientId = readClientId();
+  if (!clientId) return { status: "setup", account: null, error: null };
   const profile = readProfile();
+  if (!isSpotifyClientId(clientId)) {
+    return { status: "error", account: profile?.name ?? null, error: CLIENT_ID_ERROR };
+  }
   if (!readTokens()) return { status: "disconnected", account: profile?.name ?? null, error: null };
   return { status: "connected", account: profile?.name ?? null, error: null };
 }
@@ -31,7 +39,9 @@ export const spotifyProvider: MusicProvider = {
     return connection();
   },
   saveClientId(clientId: string) {
-    writeClientId(clientId);
+    const next = clientId.trim();
+    if (!isSpotifyClientId(next)) throw new SpotifySessionError(CLIENT_ID_ERROR);
+    if (!writeClientId(next)) throw new SpotifySessionError(STORAGE_BLOCKED);
   },
   cachedLibrary() {
     return cachedSpotifyLibrary();

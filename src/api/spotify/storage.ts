@@ -20,25 +20,64 @@ export type StoredProfile = {
   product: string;
 };
 
-function readJson<T>(key: string): T | null {
+export type AuthSignal = {
+  ok: boolean;
+  error: string | null;
+  state: string | null;
+  at: number;
+};
+
+const CLIENT_ID_PATTERN = /^[0-9a-f]{32}$/i;
+
+function readRaw(key: string) {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeRaw(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeRaw(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Safari private mode and disabled storage throw on remove as well as set.
+  }
+}
+
+function readJson<T>(key: string): T | null {
+  const raw = readRaw(key);
+  if (!raw) return null;
+  try {
     return JSON.parse(raw) as T;
   } catch {
     return null;
   }
 }
 
+export function isSpotifyClientId(value: string) {
+  return CLIENT_ID_PATTERN.test(value.trim());
+}
+
 export function readClientId() {
-  return localStorage.getItem(CLIENT_ID_KEY)?.trim() || "";
+  return readRaw(CLIENT_ID_KEY)?.trim() || "";
 }
 
 export function writeClientId(clientId: string) {
   const next = clientId.trim();
   const current = readClientId();
+  if (!writeRaw(CLIENT_ID_KEY, next)) return false;
   if (current && current !== next) clearSession();
-  localStorage.setItem(CLIENT_ID_KEY, next);
+  return true;
 }
 
 export function readTokens(): StoredTokens | null {
@@ -48,7 +87,7 @@ export function readTokens(): StoredTokens | null {
 }
 
 export function writeTokens(tokens: StoredTokens) {
-  localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
+  return writeRaw(TOKENS_KEY, JSON.stringify(tokens));
 }
 
 export function readProfile(): StoredProfile | null {
@@ -58,28 +97,28 @@ export function readProfile(): StoredProfile | null {
 }
 
 export function writeProfile(profile: StoredProfile) {
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  return writeRaw(PROFILE_KEY, JSON.stringify(profile));
 }
 
 export function readVerifier() {
-  return localStorage.getItem(VERIFIER_KEY) ?? "";
+  return readRaw(VERIFIER_KEY) ?? "";
 }
 
 export function writeVerifier(verifier: string) {
-  localStorage.setItem(VERIFIER_KEY, verifier);
+  return writeRaw(VERIFIER_KEY, verifier);
 }
 
 export function readAuthState() {
-  return localStorage.getItem(STATE_KEY) ?? "";
+  return readRaw(STATE_KEY) ?? "";
 }
 
 export function writeAuthState(state: string) {
-  localStorage.setItem(STATE_KEY, state);
+  return writeRaw(STATE_KEY, state);
 }
 
 export function clearAuthTransaction() {
-  localStorage.removeItem(VERIFIER_KEY);
-  localStorage.removeItem(STATE_KEY);
+  removeRaw(VERIFIER_KEY);
+  removeRaw(STATE_KEY);
 }
 
 export function readCachedLibrary(): MusicLibrary | null {
@@ -90,28 +129,50 @@ export function readCachedLibrary(): MusicLibrary | null {
 
 export function writeCachedLibrary(library: MusicLibrary) {
   try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
+    if (writeRaw(LIBRARY_KEY, JSON.stringify(library))) return true;
   } catch {
-    localStorage.removeItem(LIBRARY_KEY);
+    // Keep the false return below for a payload that cannot be serialized.
+  }
+  removeRaw(LIBRARY_KEY);
+  return false;
+}
+
+export function parseAuthSignal(raw: string | null): AuthSignal | null {
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as Partial<AuthSignal>;
+    if (typeof data.ok !== "boolean") return null;
+    return {
+      ok: data.ok,
+      error: data.error ?? null,
+      state: data.state ?? null,
+      at: typeof data.at === "number" ? data.at : 0,
+    };
+  } catch {
+    return null;
   }
 }
 
-export function signalAuth(ok: boolean, error?: string) {
-  localStorage.setItem(
+export function readAuthSignal() {
+  return parseAuthSignal(readRaw(AUTH_SIGNAL_KEY));
+}
+
+export function signalAuth(ok: boolean, error?: string, state?: string) {
+  return writeRaw(
     AUTH_SIGNAL_KEY,
-    JSON.stringify({ ok, error: error ?? null, at: Date.now() }),
+    JSON.stringify({ ok, error: error ?? null, state: state ?? null, at: Date.now() }),
   );
 }
 
 export function clearSession() {
-  localStorage.removeItem(TOKENS_KEY);
-  localStorage.removeItem(PROFILE_KEY);
-  localStorage.removeItem(LIBRARY_KEY);
-  localStorage.removeItem(AUTH_SIGNAL_KEY);
+  removeRaw(TOKENS_KEY);
+  removeRaw(PROFILE_KEY);
+  removeRaw(LIBRARY_KEY);
+  removeRaw(AUTH_SIGNAL_KEY);
   clearAuthTransaction();
 }
 
 export function disconnectSpotify() {
   clearSession();
-  localStorage.removeItem(CLIENT_ID_KEY);
+  removeRaw(CLIENT_ID_KEY);
 }

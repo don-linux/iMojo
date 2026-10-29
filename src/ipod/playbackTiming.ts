@@ -1,9 +1,5 @@
-export const VOLUME_DEGREES_PER_PERCENT = 4.5;
-export const VOLUME_DEGREES_PER_CLICK = 20.4545454545;
-export const SEEK_DEGREES_PER_STEP = 15;
 export const SEEK_COMMIT_MS = 1000;
 export const NOW_PLAYING_IDLE_MS = 5000;
-export const SEEK_STEP_SECONDS = 1;
 export const VOLUME_KEY_STEP = 5;
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US");
@@ -19,9 +15,12 @@ export function formatPercent(value: number) {
 
 export function formatClock(value: number) {
   const total = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
-  const minutes = Math.floor(total / 60);
   const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const secondText = String(seconds).padStart(2, "0");
+  if (total < 3600) return `${Math.floor(total / 60)}:${secondText}`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${secondText}`;
 }
 
 export function formatRemaining(displayTime: number, duration: number) {

@@ -1,0 +1,287 @@
+.screen {
+  --ipod-screen-opacity: 1;
+  --ipod-faux-backlit: #afaea7;
+  position: relative;
+  width: 273px;
+  height: 223px;
+  box-sizing: content-box;
+  margin: 30px auto 0;
+  border: 8px solid rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+  background-image: linear-gradient(135deg, #a5a59b, #d6d5d0);
+  box-shadow: inset 0 0 10px 2px #4d4d4d;
+  color: #484647;
+  font-size: 26px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .screen {
+    --ipod-screen-opacity: 0.85;
+  }
+}
+
+.screen::before,
+.screen::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: block;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.screen::before {
+  width: calc(100% - 10px);
+  height: calc(100% - 10px);
+  background-color: var(--ipod-bg-scrim, rgba(72, 70, 71, 0.1));
+  mix-blend-mode: luminosity;
+}
+
+.screen.backlit {
+  --ipod-bg-scrim: #0f69ff;
+  --ipod-faux-backlit: #b5c3d8;
+  --ipod-screen-opacity: 0.85;
+  border-color: rgba(24, 24, 24, 0.7);
+  box-shadow: inset 0 0 0 5px rgba(71, 71, 71, 0.85);
+}
+
+.screen.backlit::before {
+  opacity: 0.2;
+  mix-blend-mode: plus-lighter;
+  box-shadow: -1px 0 4px 7px white;
+}
+
+.screen.backlit::after {
+  --backlight-bulb-color: 254, 249, 220;
+  width: calc(100% + 2px);
+  height: calc(100% - 10px);
+  background-image:
+    radial-gradient(
+      50% 70% at 0% 19%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      rgb(var(--backlight-bulb-color), 0.15) 20%,
+      transparent 50%
+    ),
+    radial-gradient(
+      50% 70% at 0% 53%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      rgb(var(--backlight-bulb-color), 0.15) 20%,
+      transparent 50%
+    ),
+    radial-gradient(
+      50% 70% at 0% 83%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      rgb(var(--backlight-bulb-color), 0.15) 20%,
+      transparent 50%
+    ),
+    radial-gradient(
+      50% 70% at 0% 19%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      transparent 33%
+    ),
+    radial-gradient(
+      50% 70% at 0% 53%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      transparent 33%
+    ),
+    radial-gradient(
+      50% 70% at 0% 83%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.85) 6%,
+      transparent 33%
+    ),
+    radial-gradient(
+      20% 83% at 100% 19%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.7) 6%,
+      transparent 33%
+    ),
+    radial-gradient(
+      20% 83% at 100% 54%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.7) 6%,
+      transparent 33%
+    ),
+    radial-gradient(
+      20% 83% at 100% 83%,
+      rgb(var(--backlight-bulb-color)) 0%,
+      rgb(var(--backlight-bulb-color), 0.7) 6%,
+      transparent 33%
+    );
+  opacity: 0.15;
+  transform: translate(calc(-50% - 6px), -50%);
+  mix-blend-mode: plus-lighter;
+}
+
+.screen-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  overflow: clip;
+}
+
+.screen-clip.hidden {
+  visibility: hidden;
+}
+
+.menu {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.screen-body {
+  position: relative;
+  flex: none;
+  height: 181.7px;
+  overflow: hidden;
+  overflow: clip;
+}
+
+.sheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet[inert] {
+  pointer-events: none;
+}
+
+.menu-title {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  height: 37px;
+  margin: 0 5px;
+  border-bottom: 2px solid #484647;
+  text-align: center;
+  opacity: var(--ipod-screen-opacity, 1);
+}
+
+.screen-title {
+  position: absolute;
+  top: calc(50% + 3px);
+  left: 50%;
+  max-width: calc(100% - 86px);
+  margin: 0;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-icon {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 10px;
+  display: inline-block;
+  width: auto;
+  height: 20px;
+  transform: translate(0, calc(-50% + 1.2px)) scale(0.9);
+  fill: #484647;
+}
+.play-icon.pause {
+  --flip: 1;
+  transform: translate(calc(2.3px * var(--flip)), calc(-50% + 1.2px)) scale(1, 0.8);
+}
+.play-icon.pause:dir(rtl) {
+  --flip: -1;
+}
+
+.screen-title.brick-game-title {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: calc(100% - 110px);
+  max-width: calc(100% - 110px);
+  overflow: visible;
+}
+
+.balls-left {
+  justify-self: start;
+}
+
+.game-score {
+  justify-self: end;
+}
+
+.ipod .battery-indicator {
+  position: absolute;
+  top: 3px;
+  inset-inline-end: 5px;
+  box-sizing: content-box;
+  width: 98px;
+  height: 44px;
+  background:
+    linear-gradient(#484647, #484647) right 0 top -6px / 6px calc((100% - 28%) / 2 + 6px) no-repeat,
+    linear-gradient(#484647, #484647) right 0 bottom -6px / 6px calc((100% - 28%) / 2 + 6px)
+      no-repeat;
+  border: 6px solid #484647;
+  border-right: 0;
+  transform: scale(0.3, 0.3);
+  transform-origin: 100% 23%;
+}
+
+.ipod .battery-indicator:dir(rtl) {
+  transform-origin: 0% 23%;
+}
+
+.ipod .battery-indicator::before,
+.ipod .battery-indicator::after {
+  box-sizing: content-box;
+}
+
+.ipod .battery-indicator::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  width: 6px;
+  height: 28%;
+  border-top: 6px solid #484647;
+  border-right: 6px solid #484647;
+  border-bottom: 6px solid #484647;
+  transform: translate(0, -50%);
+}
+
+.ipod .battery-indicator::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  width: 84px;
+  background: repeating-linear-gradient(
+    to right,
+    #484647,
+    #484647 16px,
+    transparent 16px,
+    transparent 22px,
+    #484647 22px,
+    #484647 37px,
+    transparent 38px,
+    transparent 43px,
+    #484647 42px,
+    #484647 57px,
+    transparent 59px,
+    transparent 64px,
+    #484647 55px,
+    #484647 55px
+  );
+}

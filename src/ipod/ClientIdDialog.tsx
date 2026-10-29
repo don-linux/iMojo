@@ -15,6 +15,12 @@ export function ClientIdDialog({
       <form
         className="client-id-dialog"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
         onSubmit={(event) => {
           event.preventDefault();
           const clientId = value.trim();

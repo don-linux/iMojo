@@ -1,0 +1,135 @@
+.ipod {
+  position: relative;
+  width: 415px;
+  margin: 0 auto;
+  color: #484647;
+  font-family:
+    "ChicagoKare", "Krungthep", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+}
+
+.ipod-shadow {
+  position: relative;
+}
+
+.ipod-shadow::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: 1;
+  border-radius: 38px;
+  background: linear-gradient(249deg, transparent 79%, #000 84%);
+  background-size: 181% 200%;
+  background-position: 0% 50%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.body {
+  --shell-1: rgba(232, 232, 232, 0.96);
+  --shell-2: #fff;
+  --shell-shadow-1: rgba(168, 168, 168, 0.67);
+  --shell-shadow-2: #fff;
+  --shell-shadow-3: rgba(146, 146, 146, 0.47);
+  --shell-shadow-4: #e7e7e7;
+  position: relative;
+  z-index: 2;
+  width: 415px;
+  height: 692px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 38px;
+  background: linear-gradient(42deg, var(--shell-1) 0, var(--shell-2) 149%);
+  box-shadow:
+    inset 0 -1px 3px 2px var(--shell-shadow-1),
+    inset -1px 0 2px 5px var(--shell-shadow-2),
+    -1px 1px 0 3px var(--shell-shadow-3),
+    2px 1px 0 3px var(--shell-shadow-4);
+}
+
+@media (prefers-color-scheme: dark) {
+  .body {
+    --shell-1: #d4d4d4f5;
+    --shell-2: #fefefe;
+    --shell-shadow-1: #2d2d2dab;
+    --shell-shadow-2: #9e9e9e;
+    --shell-shadow-3: #00000078;
+    --shell-shadow-4: #777;
+  }
+}
+
+.body::before,
+.body::after {
+  --border-width: 6px;
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: calc(0% - var(--border-width) / 2);
+  left: calc(0% - var(--border-width) / 2);
+  display: block;
+  width: calc(100% + var(--border-width));
+  height: calc(100% + var(--border-width));
+  box-sizing: border-box;
+  padding: var(--border-width);
+  border-radius: 38px;
+  pointer-events: none;
+}
+
+.body::before {
+  z-index: 3;
+  overflow: clip;
+  background:
+    linear-gradient(
+      249deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.08) 40% 50%,
+      rgba(255, 255, 255, 0) 52% 76%
+    ),
+    linear-gradient(
+      257deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.04) 42% 55%,
+      rgba(255, 255, 255, 0) 58% 76%
+    );
+  background-repeat: no-repeat;
+  background-position: 0% 50%;
+  background-size: 181% 200%;
+}
+
+.body::after {
+  --angle-2: -23deg;
+  background:
+    conic-gradient(
+      from var(--angle-2) at 50% 50%,
+      transparent 0,
+      rgba(255, 255, 255, 0.4) 1%,
+      rgba(255, 255, 255, 0.4) 2%,
+      transparent 2.5%,
+      transparent 5%,
+      rgba(255, 255, 255, 0.4) 5.5%,
+      rgba(255, 255, 255, 0.4) 6.5%,
+      transparent 8%,
+      transparent 9%,
+      rgba(255, 255, 255, 0.4) 10%,
+      rgba(255, 255, 255, 0.4) 12%,
+      transparent 13%
+    ),
+    conic-gradient(
+      from var(--angle-2) at 50% 50%,
+      rgba(0, 0, 0, 0.3) 0,
+      rgba(0, 0, 0, 0.3) 10%,
+      rgba(0, 0, 0, 0.1) 20%,
+      rgba(0, 0, 0, 0.45) 57%,
+      rgba(0, 0, 0, 0.2) 70%,
+      rgba(0, 0, 0, 0.2) 95%,
+      rgba(0, 0, 0, 0.2)
+    ),
+    linear-gradient(44deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.3));
+  box-shadow: inset 0 0 0 calc(var(--border-width) / 2) rgba(255, 255, 255, 0.5);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
