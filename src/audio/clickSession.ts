@@ -41,6 +41,7 @@ export function createClickPlayer(deps: ClickPlayerDeps): ClickPlayer {
   }
 
   function onGesture(event: Event) {
+    if (deps.isEnabled && !deps.isEnabled()) return;
     // The wheel calls unlockClick from this dispatch, sometimes after a microtask.
     openGesture = event;
     const token = event;

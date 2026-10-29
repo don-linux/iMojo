@@ -31,6 +31,12 @@ function browserActivated(): boolean {
 
 const loadClickBytes = createByteLoader(readInlineWav);
 let browserPlayer: ClickPlayer | null = null;
+// With the clicker off the page never opens an AudioContext.
+let clickerOn = true;
+
+export function setClickEnabled(enabled: boolean): void {
+  clickerOn = enabled;
+}
 
 if (typeof window !== "undefined") {
   void loadClickBytes();
@@ -41,15 +47,16 @@ if (typeof window !== "undefined") {
     now: () => Date.now(),
     loadBytes: loadClickBytes,
     isActivated: browserActivated,
+    isEnabled: () => clickerOn,
   });
 }
 
 export function playClick(): void {
-  browserPlayer?.playClick();
+  if (clickerOn) browserPlayer?.playClick();
 }
 
 export function unlockClick(): void {
-  browserPlayer?.unlockClick();
+  if (clickerOn) browserPlayer?.unlockClick();
 }
 
 if (import.meta.hot) {

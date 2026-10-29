@@ -270,3 +270,27 @@ test("silent start uses the context clock after it has advanced", () => {
   assert.equal(primed?.buffer?.length, 1);
   assert.equal(primed?.started, 4.25);
 });
+
+test("gestures open no AudioContext while the clicker is off", () => {
+  const contexts: Fake[] = [];
+  const doc = createTarget();
+  let enabled = false;
+  createClickPlayer({
+    getConstructor: () => function Ctor(options?: AudioContextOptions) {
+      const ctx = createFake(options);
+      contexts.push(ctx);
+      return ctx;
+    } as unknown as ClickContextCtor,
+    doc,
+    win: createTarget(),
+    now: () => 0,
+    loadBytes: async () => clickWav(),
+    isEnabled: () => enabled,
+  });
+  doc.dispatch("pointerup", { pointerType: "touch" });
+  doc.dispatch("touchend");
+  assert.equal(contexts.length, 0);
+  enabled = true;
+  doc.dispatch("touchend");
+  assert.equal(contexts.length, 1);
+});

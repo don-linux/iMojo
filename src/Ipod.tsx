@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { setClickEnabled } from "./audio/clickPlayer.ts";
 import { useMusicLibrary } from "./api/useMusicLibrary.tsx";
 import { usePlayer } from "./api/player/usePlayer.ts";
 import { SpotifySdkEngine } from "./api/spotify/runtime.ts";
@@ -65,6 +66,7 @@ export default function Ipod() {
   usePlaylistFetch(shell.stack, music);
   usePauseWhenOffline(boot.online, player);
   useSavedSettings(settings, settingsRef);
+  useEffect(() => setClickEnabled(settings.clicker === "on"), [settings.clicker]);
   const backlight = useBacklight(settings, setSettings, settingsRef);
   const runtime = useNavigationRuntime({
     settings,
