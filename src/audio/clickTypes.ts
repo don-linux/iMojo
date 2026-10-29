@@ -39,6 +39,11 @@ export type ClickListenable = {
   visibilityState?: string;
 };
 
+export type ClickActivation = {
+  active: boolean;
+  sticky: boolean;
+};
+
 export type ClickPlayerDeps = {
   getConstructor: () => ClickContextCtor | null;
   doc: ClickListenable | null;
@@ -47,9 +52,17 @@ export type ClickPlayerDeps = {
   loadBytes: () => Promise<ArrayBuffer | null>;
   isActivated?: () => boolean;
   isEnabled?: () => boolean;
+  isIos?: boolean;
+  activation?: () => ClickActivation;
+  claimPlayback?: () => void;
 };
 
-export type ClickPlayer = { playClick: () => void; unlockClick: () => void; dispose: () => void };
+export type ClickPlayer = {
+  playClick: () => void;
+  unlockClick: () => void;
+  unlockDragEnd: () => void;
+  dispose: () => void;
+};
 
 export function createByteLoader(read: () => Promise<ArrayBuffer | null>): () => Promise<ArrayBuffer | null> {
   let pending: Promise<ArrayBuffer | null> | null = null;

@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import { movePaddle, type BrickGame } from "../brick/geom.ts";
 import { setSteer } from "../brick/sim.ts";
-import { playClick, unlockClick } from "../audio/clickPlayer.ts";
+import { playClick, unlockClick, unlockDragEnd } from "../audio/clickPlayer.ts";
 import type { Settings } from "../menus/model.ts";
 import type { Frame, MenuData } from "../menus/types.ts";
 import { VOLUME_KEY_STEP } from "./playbackTiming.ts";
@@ -273,6 +273,7 @@ export function useWheelActions({
   }
 
   function onDragEnd() {
+    unlockDragEnd();
     scroller.current.reset();
     seekScroller.current.reset();
     volumeScroller.current.reset();
