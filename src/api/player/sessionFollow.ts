@@ -9,8 +9,8 @@ const UNAVAILABLE = "This track is unavailable";
 export function ingest(core: SessionCore, state: DevicePlaybackState | null) {
   if (core.state.finished) return;
   if (!core.accepting) return;
+  core.transport.observeState?.(state);
   const result = followPlayback(state, core.memory);
-  if (result.shuffle) core.transport.disableDeviceShuffle?.();
   if (result.kind === "ignore") return;
   if (result.kind === "displaced") {
     core.memory = result.memory;

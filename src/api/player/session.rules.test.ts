@@ -22,6 +22,37 @@ test("previous restarts after 3 seconds and otherwise steps back", async () => {
   assert.equal(fake.plays.at(-1)?.uris[0], "spotify:track:a");
 });
 
+test("seeking back to 0 after a near-end pause does not end the track", async () => {
+  const fake = fakeTransport();
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a", 30_000), track("b", 30_000)], 0);
+  await session.idle();
+  session.ingest(deviceState("spotify:track:a", { position: 29_000, paused: true, duration: 30_000 }));
+  assert.equal(session.getSnapshot().index, 0);
+  await session.seekTo(0);
+  session.seek(-1);
+  session.ingest(deviceState("spotify:track:a", { position: 0, paused: true, duration: 30_000 }));
+  await session.idle();
+  assert.equal(session.getSnapshot().index, 0);
+  assert.equal(session.getSnapshot().finished, false);
+  assert.equal(fake.plays.length, 1);
+});
+
+test("two copies of a track advance instead of replaying the last copy", async () => {
+  const fake = fakeTransport();
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a", 30_000), track("a", 30_000)], 0);
+  await session.idle();
+  session.ingest(deviceState("spotify:track:a", { position: 29_000, duration: 30_000 }));
+  session.ingest(deviceState("spotify:track:a", { position: 100, duration: 30_000 }));
+  assert.equal(session.getSnapshot().index, 1);
+  session.ingest(deviceState("spotify:track:a", { position: 29_000, paused: true, duration: 30_000 }));
+  session.ingest(deviceState("spotify:track:a", { position: 0, paused: true, duration: 30_000 }));
+  await session.idle();
+  assert.equal(session.getSnapshot().finished, true);
+  assert.equal(fake.plays.length, 1);
+});
+
 test("seek lands in the last two seconds without skipping", async () => {
   const fake = fakeTransport();
   const session = createPlayerSession({ transport: fake.transport });

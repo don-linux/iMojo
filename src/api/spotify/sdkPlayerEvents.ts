@@ -50,6 +50,7 @@ export type SpotifySdkPlayerOptions = {
 
 export type SdkEventSink = {
   disposed: () => boolean;
+  listening: () => boolean;
   deviceId: () => string;
   setDeviceId: (id: string) => void;
   activationDeferred: () => boolean;
@@ -73,6 +74,23 @@ export function browserTimer(): SdkTimer {
 export function readWindowSdk() {
   if (typeof window === "undefined") return undefined;
   return window.Spotify;
+}
+
+export function namedAbort(message: string) {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+export function disposedError() {
+  return namedAbort("Spotify player was disposed");
+}
+export function safeDisconnect(player: SpotifyPlayer | null) {
+  if (!player) return;
+  try {
+    player.disconnect();
+  } catch {
+    // Teardown is best-effort; the instance is already unusable.
+  }
 }
 
 export function abortError(signal: AbortSignal) {
@@ -141,7 +159,8 @@ export function deliverToken(sink: SdkEventSink, callback: (token: string) => vo
 }
 
 export function bindPlayerEvents(player: SpotifyPlayer, sink: SdkEventSink) {
-  let authForced = false;
+  let authRefreshing = false;
+  let authRetried = false;
 
   const expire = () => {
     if (sink.disposed()) return;
@@ -151,8 +170,14 @@ export function bindPlayerEvents(player: SpotifyPlayer, sink: SdkEventSink) {
     sink.dispose();
   };
 
+  const resetAuth = () => {
+    authRefreshing = false;
+    authRetried = false;
+  };
+
   player.addListener("ready", (event) => {
-    if (sink.disposed()) return;
+    if (!sink.listening()) return;
+    resetAuth();
     const deviceId = deviceIdFrom(event);
     sink.setDeviceId(deviceId);
     sink.emit("ready", deviceId);
@@ -163,7 +188,7 @@ export function bindPlayerEvents(player: SpotifyPlayer, sink: SdkEventSink) {
     if (!sink.disposed()) sink.emit("not_ready");
   });
   player.addListener("player_state_changed", (event) => {
-    if (sink.disposed()) return;
+    if (!sink.listening()) return;
     sink.emit("state", isPlaybackState(event) ? event : null);
   });
   player.addListener("autoplay_failed", () => {
@@ -175,13 +200,30 @@ export function bindPlayerEvents(player: SpotifyPlayer, sink: SdkEventSink) {
     sink.fail(new Error(SDK_BROWSER_MESSAGE), true);
   });
   player.addListener("authentication_error", () => {
-    if (sink.disposed()) return;
-    if (authForced) {
+    if (!sink.listening()) return;
+    if (authRefreshing) return;
+    if (authRetried) {
       expire();
       return;
     }
-    authForced = true;
-    void sink.readToken({ force: true }).catch(() => expire());
+    authRefreshing = true;
+    void sink
+      .readToken({ force: true })
+      .then((token) => {
+        authRefreshing = false;
+        if (!sink.listening()) return;
+        if (!token) {
+          expire();
+          return;
+        }
+        authRetried = true;
+        void player.connect().catch(() => {});
+      })
+      .catch(() => {
+        authRefreshing = false;
+        if (!sink.listening()) return;
+        expire();
+      });
   });
   player.addListener("account_error", (event) => {
     const raw = eventMessage(event);
@@ -193,6 +235,8 @@ export function bindPlayerEvents(player: SpotifyPlayer, sink: SdkEventSink) {
     const message = eventMessage(event) || TRACK_ERROR;
     sink.emit("error", { kind: "playback", message, recoverable: true });
   });
+
+  return resetAuth;
 }
 
 export class ReadyLatch {

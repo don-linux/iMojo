@@ -135,7 +135,9 @@ bindAccessTokenRefresh((options) => getAccessToken(options));
 export async function exchangeCode(code: string) {
   const clientId = readClientId();
   const verifier = readVerifier();
+  const stored = readTokens();
   if (!clientId || !verifier) {
+    if (clientId && stored && stored.expiresAt > Date.now()) return;
     throw new SpotifySessionError("Spotify sign-in expired. Try Connect again.");
   }
   const before = readTokens();

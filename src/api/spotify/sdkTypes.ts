@@ -18,6 +18,8 @@ export type SpotifyPlaybackState = {
   position: number;
   duration: number;
   timestamp: number;
+  shuffle?: boolean;
+  repeat_mode?: number;
   track_window: {
     current_track: { uri: string | null } | null;
   };

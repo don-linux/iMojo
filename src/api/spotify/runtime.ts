@@ -16,8 +16,10 @@ type SpotifySink = {
 let player: SpotifySdkPlayer | null = null;
 let sink: SpotifySink | null = null;
 let token = 0;
+let teardownBound = false;
 
 function livePlayer() {
+  bindTeardown();
   if (player && !player.disposed) return player;
   const sdk = new SpotifySdkPlayer({ name: PLAYER_NAME, volume: sink?.getVolume() ?? 1 });
   sdk.on("state", (state) => {
@@ -51,9 +53,24 @@ export function warmSpotifyPlayer() {
 
 function dropPlayer() {
   sink?.suspend();
+  player?.disconnect();
+  spotifyTransport.releaseDevice();
+}
+
+function hardDisposeSpotifyPlayer() {
+  sink?.suspend();
   player?.dispose();
   player = null;
   spotifyTransport.releaseDevice();
+}
+
+function bindTeardown() {
+  if (teardownBound || typeof window === "undefined") return;
+  teardownBound = true;
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted) return;
+    hardDisposeSpotifyPlayer();
+  });
 }
 
 export function disposeSpotifyPlayer() {
@@ -62,6 +79,12 @@ export function disposeSpotifyPlayer() {
 }
 
 export const spotifyTransport = new SpotifyTransport(() => livePlayer());
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    hardDisposeSpotifyPlayer();
+  });
+}
 
 export class SpotifySdkEngine {
   private readonly token: number;

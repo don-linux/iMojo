@@ -73,6 +73,7 @@ export type DevicePlaybackState = {
   duration: number;
   timestamp: number;
   shuffle?: boolean;
+  repeat_mode?: number;
   track_window: {
     current_track: { uri: string | null } | null;
     previous_tracks?: readonly { uri: string | null }[];
@@ -87,6 +88,7 @@ export type PlayerTransport = {
   setVolume: (volume: number) => Promise<void> | void;
   getState: () => Promise<DevicePlaybackState | null>;
   supportReason?: () => string | null;
+  observeState?: (state: DevicePlaybackState | null) => void;
   disableDeviceShuffle?: () => void;
 };
 

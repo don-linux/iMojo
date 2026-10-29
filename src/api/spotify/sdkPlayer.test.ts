@@ -91,7 +91,11 @@ function timer(): SdkTimer & { pending: { cb: () => void; ms: number }[] } {
 
 const sdk = { Player: FakePlayer as unknown as SpotifySdk["Player"] };
 
-function create(extra: { getAccessToken?: () => Promise<string>; readSdk?: () => SpotifySdk | undefined; loadSdk?: () => Promise<void> } = {}) {
+function create(extra: {
+  getAccessToken?: (options?: { force?: boolean }) => Promise<string>;
+  readSdk?: () => SpotifySdk | undefined;
+  loadSdk?: () => Promise<void>;
+} = {}) {
   const clock = timer();
   const player = new SpotifySdkPlayer({
     sdk: extra.readSdk ? undefined : sdk,

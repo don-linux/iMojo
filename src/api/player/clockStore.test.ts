@@ -64,6 +64,56 @@ test("lag is clamped and an unknown duration does not clamp position", () => {
   assert.equal(clock.getSnapshot().duration, 0);
 });
 
+test("a plausible epoch lag is applied in full up to five minutes", () => {
+  const { clock, setNow } = harness();
+  const now = 1_700_000_000_000;
+  setNow(now);
+  clock.note({
+    positionMs: 1_000,
+    timestamp: now - 20_000,
+    durationMs: 180_000,
+    paused: false,
+    generation: 1,
+  });
+  assert.equal(clock.preciseMs(), 21_000);
+
+  clock.note({
+    positionMs: 0,
+    timestamp: now - 5 * 60_000,
+    durationMs: 400_000,
+    paused: false,
+    generation: 1,
+  });
+  assert.equal(clock.preciseMs(), 300_000);
+
+  clock.note({
+    positionMs: 1_000,
+    timestamp: now - (5 * 60_000 + 1),
+    durationMs: 180_000,
+    paused: false,
+    generation: 1,
+  });
+  assert.equal(clock.preciseMs(), 2_500);
+
+  clock.note({
+    positionMs: 4_000,
+    timestamp: now + 3_000,
+    durationMs: 180_000,
+    paused: false,
+    generation: 1,
+  });
+  assert.equal(clock.preciseMs(), 4_000);
+
+  clock.note({
+    positionMs: 1_000,
+    timestamp: 0,
+    durationMs: 180_000,
+    paused: false,
+    generation: 1,
+  });
+  assert.equal(clock.preciseMs(), 2_500);
+});
+
 test("the tick loop runs only while something is subscribed and playback is unpaused", () => {
   const { clock, ticks } = harness();
   clock.note({ positionMs: 0, timestamp: 1_000_000, durationMs: 10_000, paused: false, generation: 1 });

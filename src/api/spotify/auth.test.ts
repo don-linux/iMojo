@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, before, beforeEach, test } from "node:test";
 import { SpotifySessionError } from "./api.ts";
-import { getAccessToken } from "./auth.ts";
+import { exchangeCode, getAccessToken } from "./auth.ts";
 import { readTokens, writeClientId, writeTokens, type StoredTokens } from "./storage.ts";
 
 const CLIENT_ID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -133,6 +133,28 @@ test("invalid_grant keeps a refresh token stored while the retry is in flight", 
     (reason: unknown) => reason instanceof SpotifySessionError,
   );
   assert.equal(readTokens()?.refreshToken, "C");
+});
+
+test("a second exchange succeeds when this client already stored tokens", async () => {
+  writeClientId(CLIENT_ID);
+  writeTokens({ accessToken: "winner", refreshToken: "winner-refresh", expiresAt: Date.now() + 60_000 });
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return jsonResponse({ access_token: "loser" });
+  };
+  await exchangeCode("shared-code");
+  assert.equal(called, false);
+  assert.equal(readTokens()?.accessToken, "winner");
+});
+
+test("a missing verifier still fails when stored tokens are not valid", async () => {
+  writeClientId(CLIENT_ID);
+  writeTokens({ accessToken: "stale", refreshToken: "stale-refresh", expiresAt: Date.now() - 1_000 });
+  await assert.rejects(exchangeCode("shared-code"), SpotifySessionError);
+  writeTokens({ accessToken: "fresh", refreshToken: "fresh-refresh", expiresAt: Date.now() + 60_000 });
+  localStorage.removeItem("ipod.spotify.clientId");
+  await assert.rejects(exchangeCode("shared-code"), SpotifySessionError);
 });
 
 test("invalid_grant clears the session when the failed refresh token is still stored", async () => {

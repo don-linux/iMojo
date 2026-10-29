@@ -63,8 +63,8 @@ function sleep(ms: number, signal?: AbortSignal) {
 }
 
 export class SpotifyTransport {
-  private modesAligned = false;
-  private shuffleForced = false;
+  private shuffleFlight: Promise<void> | null = null;
+  private repeatFlight: Promise<void> | null = null;
   private readonly player: () => SpotifySdkPlayer;
 
   constructor(player: () => SpotifySdkPlayer) {
@@ -111,22 +111,22 @@ export class SpotifyTransport {
   }
 
   releaseDevice() {
-    this.modesAligned = false;
-    this.shuffleForced = false;
+    this.shuffleFlight = null;
+    this.repeatFlight = null;
   }
 
   async getState(): Promise<DevicePlaybackState | null> {
     return asDeviceState(await this.player().getCurrentState());
   }
 
+  observeState(state: DevicePlaybackState | null) {
+    if (!state) return;
+    if (state.shuffle === true) this.forceMode("shuffle");
+    if (typeof state.repeat_mode === "number" && state.repeat_mode !== 0) this.forceMode("repeat");
+  }
+
   disableDeviceShuffle() {
-    if (this.shuffleForced) return;
-    const deviceId = this.player().deviceId;
-    if (!deviceId) return;
-    this.shuffleForced = true;
-    void this.putShuffleOff(deviceId).catch(() => {
-      this.shuffleForced = false;
-    });
+    this.forceMode("shuffle");
   }
 
   private async command(signal: AbortSignal, task: Promise<void>) {
@@ -173,24 +173,37 @@ export class SpotifyTransport {
 
   /**
    * Device shuffle reorders the URI context and would desync the local play
-   * order, so it is forced off once per device. Device repeat is forced off
-   * in the same step; only the session repeats or wraps.
+   * order. Device repeat replays a context the session has already left.
    */
   private async align(deviceId: string, signal: AbortSignal) {
-    if (this.modesAligned) return;
     if (signal.aborted) throw abortFrom(signal);
     const access = await getAccessToken();
     if (signal.aborted) throw abortFrom(signal);
     await spotifySend("PUT", shuffleOffUrl(deviceId), access, undefined, signal);
     if (signal.aborted) throw abortFrom(signal);
     await spotifySend("PUT", repeatOffUrl(deviceId), access, undefined, signal);
-    this.modesAligned = true;
-    this.shuffleForced = true;
   }
 
-  private async putShuffleOff(deviceId: string) {
+  private forceMode(kind: "shuffle" | "repeat") {
+    if (kind === "shuffle" ? this.shuffleFlight : this.repeatFlight) return;
+    const deviceId = this.player().deviceId;
+    if (!deviceId) return;
+    const task = this.putMode(kind, deviceId).finally(() => {
+      if (kind === "shuffle") {
+        if (this.shuffleFlight === task) this.shuffleFlight = null;
+      } else if (this.repeatFlight === task) {
+        this.repeatFlight = null;
+      }
+    });
+    if (kind === "shuffle") this.shuffleFlight = task;
+    else this.repeatFlight = task;
+    void task.catch(() => {});
+  }
+
+  private async putMode(kind: "shuffle" | "repeat", deviceId: string) {
     const access = await getAccessToken();
-    await spotifySend("PUT", shuffleOffUrl(deviceId), access, undefined);
+    const url = kind === "shuffle" ? shuffleOffUrl(deviceId) : repeatOffUrl(deviceId);
+    await spotifySend("PUT", url, access, undefined);
   }
 
   private wrap(reason: unknown, signal: AbortSignal) {

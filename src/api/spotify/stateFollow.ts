@@ -124,6 +124,24 @@ export function followPlayback(state: DevicePlaybackState | null, memory: Follow
     return { kind: "displaced", ...base, playing: false, queueIndex, memory: { ...memory, sawNearEnd: false } };
   }
 
+  const nextPos = memory.windowPos + 1;
+  if (memory.sawNearEnd && positionMs <= START_MS && memory.windowUris[nextPos] === current) {
+    return {
+      kind: "advance",
+      ...base,
+      queueIndex: queueIndexAt(memory, nextPos),
+      memory: {
+        ...memory,
+        expectedUri: current,
+        windowPos: nextPos,
+        lastPositionMs: positionMs,
+        sawNearEnd: false,
+        seen: true,
+        suppressZeroEnd: true,
+      },
+    };
+  }
+
   const near = durationMs > 0 && positionMs > 0 && positionMs >= durationMs - NEAR_END_MS;
   const atZero = positionMs <= 0;
   const prevHasUs = previous.includes(memory.expectedUri);
@@ -156,6 +174,7 @@ export function asDeviceState(state: SpotifyPlaybackState | null): DevicePlaybac
     duration: state.duration,
     timestamp: state.timestamp,
     shuffle: typeof record.shuffle === "boolean" ? record.shuffle : undefined,
+    repeat_mode: typeof record.repeat_mode === "number" ? record.repeat_mode : undefined,
     track_window: {
       current_track: trackWindow.current_track,
       previous_tracks: trackWindow.previous_tracks,

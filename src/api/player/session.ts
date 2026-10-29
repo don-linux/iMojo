@@ -215,6 +215,7 @@ export class PlayerSession {
     const durationMs = core.clock.durationMs();
     let ms = Math.max(0, seconds * 1000);
     if (durationMs > 0) ms = Math.min(ms, durationMs);
+    core.memory = { ...core.memory, sawNearEnd: false, suppressZeroEnd: true };
     core.clock.seekLocal(ms);
     return core.seeks.seek(Math.round(ms));
   };

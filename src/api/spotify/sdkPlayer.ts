@@ -5,8 +5,11 @@ import {
   bindSignal,
   browserTimer,
   deliverToken,
+  disposedError,
+  namedAbort,
   readWindowSdk,
   ReadyLatch,
+  safeDisconnect,
   type SdkEventSink,
   type SdkPlayerEventMap,
   type SpotifySdkPlayerOptions,
@@ -29,21 +32,6 @@ export type {
   SpotifySdkPlayerOptions,
   TokenReader,
 } from "./sdkPlayerEvents.ts";
-
-function disposedError() {
-  const error = new Error("Spotify player was disposed");
-  error.name = "AbortError";
-  return error;
-}
-
-function safeDisconnect(player: SpotifyPlayer | null) {
-  if (!player) return;
-  try {
-    player.disconnect();
-  } catch {
-    // Teardown is best-effort; the instance is already unusable.
-  }
-}
 
 /**
  * Web Playback SDK lifecycle. `activate()` must run inside the user gesture:
@@ -74,6 +62,9 @@ export class SpotifySdkPlayer {
   private wantsActivation = false;
   private deferredActivation = false;
   private opening: Promise<string> | null = null;
+  private generation = 0;
+  private armedGeneration = -1;
+  private resetAuth: () => void = () => {};
   private readonly ready: ReadyLatch;
 
   constructor(options: SpotifySdkPlayerOptions = {}) {
@@ -173,10 +164,22 @@ export class SpotifySdkPlayer {
     void this.player.setVolume(volume);
   }
 
+  disconnect() {
+    if (this.isDisposed) return;
+    this.generation += 1;
+    this.deviceIdValue = "";
+    this.opening = null;
+    this.resetAuth();
+    this.ready.fail(namedAbort("Spotify player disconnected"));
+    safeDisconnect(this.player);
+  }
+
   dispose() {
     if (this.isDisposed) return;
     this.isDisposed = true;
+    this.generation += 1;
     this.deviceIdValue = "";
+    this.opening = null;
     this.ready.fail(this.ready.terminal ?? disposedError());
     const player = this.player;
     this.player = null;
@@ -195,6 +198,7 @@ export class SpotifySdkPlayer {
   private sink(): SdkEventSink {
     return {
       disposed: () => this.isDisposed,
+      listening: () => !this.isDisposed && this.generation === this.armedGeneration,
       deviceId: () => this.deviceIdValue,
       setDeviceId: (id) => {
         this.deviceIdValue = id;
@@ -230,21 +234,28 @@ export class SpotifySdkPlayer {
       return null;
     }
     this.player = created;
-    bindPlayerEvents(created, this.sink());
+    this.resetAuth = bindPlayerEvents(created, this.sink());
     return created;
   }
 
+  private abandonment() {
+    return this.ready.terminal ?? (this.isDisposed ? disposedError() : namedAbort("Spotify player disconnected"));
+  }
+
   private async open() {
-    if (this.isDisposed) throw this.ready.terminal ?? disposedError();
-    if (this.ready.terminal) throw this.ready.terminal;
+    const generation = this.generation;
+    const stale = () => this.isDisposed || generation !== this.generation;
+    if (stale() || this.ready.terminal) throw this.abandonment();
     await this.ensureLoaded();
-    if (this.isDisposed) throw this.ready.terminal ?? disposedError();
+    if (stale() || this.ready.terminal) throw this.abandonment();
     const player = this.instantiate();
-    if (!player) throw this.ready.terminal ?? disposedError();
+    if (!player || stale()) throw this.abandonment();
+    this.armedGeneration = generation;
     // Outside the original gesture when the script had to load first.
     if (this.wantsActivation) void player.activateElement();
     if (this.deviceIdValue) return this.deviceIdValue;
     const ready = this.ready.arm(PLAYER_NOT_CONNECTED);
+    if (stale()) throw this.abandonment();
     const connected = player.connect().then(
       (ok) => ok,
       (reason: unknown) => {
@@ -254,15 +265,19 @@ export class SpotifySdkPlayer {
       },
     );
     void connected.catch(() => {});
+    if (stale()) {
+      safeDisconnect(player);
+      throw this.abandonment();
+    }
     try {
       await Promise.race([connected, ready]);
     } catch (reason) {
       if (this.isDisposed) safeDisconnect(player);
       throw reason;
     }
-    if (this.isDisposed) {
-      safeDisconnect(player);
-      throw this.ready.terminal ?? disposedError();
+    if (stale()) {
+      if (this.isDisposed) safeDisconnect(player);
+      throw this.abandonment();
     }
     if (this.deviceIdValue) return this.deviceIdValue;
     return ready;

@@ -59,6 +59,9 @@ export function fakeTransport() {
     },
     getState: async () => null,
     supportReason: () => support,
+    observeState: (state) => {
+      if (state?.shuffle === true) shuffleFixes += 1;
+    },
     disableDeviceShuffle: () => {
       shuffleFixes += 1;
     },

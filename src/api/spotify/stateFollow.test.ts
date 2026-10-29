@@ -83,6 +83,21 @@ test("a null state pauses and does not end", () => {
   assert.equal(result.playing, false);
 });
 
+test("a repeated uri advances when playback restarts near 0 after the end", () => {
+  const same = memory({
+    windowUris: ["spotify:track:a", "spotify:track:a", "spotify:track:b"],
+    windowIndices: [0, 1, 2],
+    windowPos: 0,
+  });
+  const armed = followPlayback(state({ position: 29_000, duration: 30_000 }), same);
+  assert.equal(armed.memory.sawNearEnd, true);
+  const next = followPlayback(state({ position: 100, duration: 30_000 }), armed.memory);
+  assert.equal(next.kind, "advance");
+  assert.equal(next.memory.windowPos, 1);
+  assert.equal(next.queueIndex, 1);
+  assert.equal(next.memory.sawNearEnd, false);
+});
+
 test("duration 0 is unknown and cannot end the track", () => {
   const near = followPlayback(state({ paused: true, position: 500, duration: 0 }), memory());
   assert.equal(near.kind, "progress");

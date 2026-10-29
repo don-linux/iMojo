@@ -2,6 +2,8 @@ import type { PlaybackClock } from "./types.ts";
 
 const TICK_MS = 250;
 const MAX_LAG_MS = 1500;
+const MAX_PLAUSIBLE_LAG_MS = 5 * 60 * 1000;
+const MAX_FUTURE_SKEW_MS = 2_000;
 const EMPTY: PlaybackClock = { currentTime: 0, duration: 0 };
 
 export type ClockSample = {
@@ -39,6 +41,15 @@ function defaultListen(onChange: () => void) {
   const handler = () => onChange();
   document.addEventListener("visibilitychange", handler);
   return () => document.removeEventListener("visibilitychange", handler);
+}
+
+function sampleLag(nowMs: number, timestamp: number, paused: boolean) {
+  if (paused || !Number.isFinite(nowMs) || !Number.isFinite(timestamp)) return 0;
+  const raw = nowMs - timestamp;
+  if (!Number.isFinite(raw)) return 0;
+  const plausible = timestamp > 0 && raw >= -MAX_FUTURE_SKEW_MS && raw <= MAX_PLAUSIBLE_LAG_MS;
+  if (plausible) return Math.max(0, raw);
+  return Math.min(MAX_LAG_MS, Math.max(0, raw));
 }
 
 function defaultSchedule(callback: () => void, ms: number) {
@@ -131,10 +142,9 @@ export function createClockStore(options: ClockStoreOptions = {}) {
       return anchor.durationMs;
     },
     note(sample: ClockSample) {
-      const raw = now() - sample.timestamp;
-      const lag = sample.paused || !Number.isFinite(raw) ? 0 : Math.min(MAX_LAG_MS, Math.max(0, raw));
+      const lag = sampleLag(now(), sample.timestamp, sample.paused);
       const durationMs = Number.isFinite(sample.durationMs) && sample.durationMs > 0 ? sample.durationMs : 0;
-      const positionMs = Math.max(0, sample.positionMs + (sample.paused ? 0 : lag));
+      const positionMs = Math.max(0, sample.positionMs + lag);
       anchor = {
         positionMs,
         at: now(),
