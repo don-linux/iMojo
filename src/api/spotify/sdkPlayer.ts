@@ -1,3 +1,4 @@
+import { isIosWebKit } from "../../audio/clickPlayer.ts";
 import { getAccessToken } from "./auth.ts";
 import { loadSpotifySdk } from "./sdkLoader.ts";
 import {
@@ -47,6 +48,7 @@ export class SpotifySdkPlayer {
   private readonly readSdk: () => SpotifySdk | undefined;
   private readonly readyTimeoutMs: number;
   private readonly timer: SdkTimer;
+  private readonly isIos: () => boolean;
   private readonly handlers: { [K in keyof SdkPlayerEventMap]: Set<SdkPlayerEventMap[K]> } = {
     ready: new Set(),
     not_ready: new Set(),
@@ -76,6 +78,7 @@ export class SpotifySdkPlayer {
     this.readSdk = options.readSdk ?? readWindowSdk;
     this.readyTimeoutMs = options.readyTimeoutMs ?? SDK_READY_TIMEOUT_MS;
     this.timer = options.timer ?? browserTimer();
+    this.isIos = options.isIos ?? browserIsIos;
     this.ready = new ReadyLatch(this.timer, this.readyTimeoutMs, () => this.deviceIdValue);
   }
 
@@ -152,6 +155,17 @@ export class SpotifySdkPlayer {
     return player.resume();
   }
 
+  /**
+   * Safari only counts `resume()` when the call itself is on the click stack.
+   * Desktop and Android return false so the Web API transfer stays in charge.
+   */
+  resumeInGesture() {
+    const player = this.player;
+    if (!player || this.isDisposed || !this.isIos()) return false;
+    void player.resume().catch(() => {});
+    return true;
+  }
+
   seek(positionMs: number) {
     const player = this.player;
     if (!player || this.isDisposed) return Promise.resolve();
@@ -160,7 +174,7 @@ export class SpotifySdkPlayer {
 
   setVolume(volume: number) {
     this.volume = volume;
-    if (!this.player || this.isDisposed) return;
+    if (!this.player || this.isDisposed || this.isIos()) return;
     void this.player.setVolume(volume);
   }
 
@@ -289,4 +303,13 @@ export class SpotifySdkPlayer {
     if (this.isDisposed) return;
     if (!this.pullSdk()) throw new Error(PLAYER_NOT_LOADED);
   }
+}
+
+function browserIsIos() {
+  if (typeof navigator === "undefined") return false;
+  return isIosWebKit({
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints,
+  });
 }

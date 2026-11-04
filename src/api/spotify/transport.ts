@@ -102,6 +102,10 @@ export class SpotifyTransport {
     return this.command(signal, this.player().resume());
   }
 
+  gestureResume() {
+    return this.player().resumeInGesture();
+  }
+
   seek(positionMs: number, signal: AbortSignal) {
     return this.command(signal, this.player().seek(positionMs));
   }

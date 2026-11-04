@@ -4,7 +4,7 @@ import { createSeekGate, createVolumeControl } from "./coalesce.ts";
 import { CommandLane } from "./commandLane.ts";
 import { identityOrder, orderPosition, RESTART_SECONDS, shuffledOrder, WINDOW_LIMIT } from "./order.ts";
 import { fail, halt, haltLane, ingest, resync, restartCurrent, skip } from "./sessionFollow.ts";
-import { assign, playingOf, viewOf, type SessionCore, type SessionState } from "./sessionHost.ts";
+import { assign, playingOf, trackAt, viewOf, type SessionCore, type SessionState } from "./sessionHost.ts";
 import { startPlay } from "./sessionPlay.ts";
 import { blankMemory } from "../spotify/stateFollow.ts";
 import type { PlaybackSnapshot, PlayerTransport, RepeatMode } from "./types.ts";
@@ -61,6 +61,7 @@ export class PlayerSession {
       sdkPlaying: false,
       accepting: false,
       committed: false,
+      autoplayTrackId: null,
       queueFinished: false,
       loadedEpoch: 0,
       state,
@@ -147,7 +148,7 @@ export class PlayerSession {
     core.order = core.shuffle ? shuffledOrder(tracks.length, start, core.random) : identityOrder(tracks.length);
     core.queueFinished = false;
     assign(core, { queue: tracks, finished: false });
-    startPlay(core, start, true, false);
+    startPlay(core, start, true, false, true);
   };
 
   toggle = () => {
@@ -163,7 +164,7 @@ export class PlayerSession {
       this.pause();
       return;
     }
-    if (core.state.queue.length > 0 && core.state.index >= 0) startPlay(core, core.state.index, true, false);
+    if (core.state.queue.length > 0 && core.state.index >= 0) startPlay(core, core.state.index, true, false, true);
   };
 
   pause = () => {
@@ -180,12 +181,13 @@ export class PlayerSession {
   resume = () => {
     const core = this.core;
     if (!core.committed && core.state.index >= 0) {
-      startPlay(core, core.state.index, true, false);
+      startPlay(core, core.state.index, true, false, true);
       return;
     }
+    core.transport.gestureResume?.();
     core.optimistic = true;
     core.clock.setPaused(false);
-    assign(core, {});
+    assign(core, { error: null });
     void core.lane.run(async (ctx) => {
       await core.transport.resume(ctx.signal);
       if (!ctx.live()) return;
@@ -235,6 +237,7 @@ export class PlayerSession {
   };
 
   stop = () => {
+    this.core.autoplayTrackId = null;
     haltLane(this.core);
     this.core.queueFinished = false;
     this.core.order = [];
@@ -268,6 +271,9 @@ export class PlayerSession {
     this.core.optimistic = null;
     this.core.sdkPlaying = false;
     this.core.clock.setPaused(true);
+    if (kind === "autoplay") {
+      this.core.autoplayTrackId = trackAt(this.core, this.core.state.index)?.id ?? null;
+    }
     const keepLoaded = kind === "autoplay" || kind === "playback";
     assign(this.core, {
       error: message,

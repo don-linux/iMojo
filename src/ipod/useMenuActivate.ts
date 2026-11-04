@@ -78,15 +78,19 @@ export function useMenuActivate({
       return;
     }
     notify();
-    unlockClick();
     const frame = topFrame(stackRef);
-    if (!frame) return;
+    if (!frame) {
+      unlockClick();
+      return;
+    }
     if (frame.id === "brick") {
+      unlockClick();
       gameRef.current = launch(gameRef.current);
       setHud(hudFrom(gameRef.current));
       return;
     }
     if (frame.id === "now-playing") {
+      unlockClick();
       if (nowPlaying.isAdjustingVolume()) {
         nowPlaying.exitVolume();
         return;
@@ -97,6 +101,13 @@ export function useMenuActivate({
     }
     const view = selectionView(frame, settingsRef.current, dataRef.current, playbackSlice(playerRef.current));
     const row = view.row;
+    if (row?.action === "play") {
+      primeSpotifyPlayback();
+      playTrack(playPosition(view.list, view.index));
+      unlockClick();
+      return;
+    }
+    unlockClick();
     if (frame.id === "playlist" && frame.param && row?.id === "unavailable") {
       void music.loadPlaylist(frame.param, { retry: true });
       return;
@@ -107,11 +118,6 @@ export function useMenuActivate({
         void music.loadPlaylist(row.param, { retry: true });
       }
       push(row.screen, row.param, row.screenTitle ?? row.title);
-      return;
-    }
-    if (row.action === "play") {
-      primeSpotifyPlayback();
-      playTrack(playPosition(view.list, view.index));
       return;
     }
     if (row.action === "cycle") {

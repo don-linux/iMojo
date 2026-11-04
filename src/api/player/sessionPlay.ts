@@ -4,7 +4,23 @@ import { PlaybackFailure, type PlayWindow } from "./types.ts";
 
 const UNAVAILABLE = "This track is unavailable";
 
-export function startPlay(core: SessionCore, index: number, resume: boolean, keepPosition: boolean) {
+function recoverAutoplay(core: SessionCore, index: number) {
+  const track = trackAt(core, index);
+  if (!track || !core.autoplayTrackId || core.autoplayTrackId !== track.id) return false;
+  if (core.transport.gestureResume?.() !== true) return false;
+  core.optimistic = true;
+  core.clock.setPaused(false);
+  assign(core, { error: null, loading: false });
+  return true;
+}
+
+export function startPlay(
+  core: SessionCore,
+  index: number,
+  resume: boolean,
+  keepPosition: boolean,
+  recover = false,
+) {
   const blocked = core.transport.supportReason?.() ?? null;
   const position = orderPosition(core.order, index);
   if (blocked) {
@@ -13,8 +29,10 @@ export function startPlay(core: SessionCore, index: number, resume: boolean, kee
     assign(core, { index, orderPos: position, error: blocked, loading: false, hasLoaded: false, finished: false });
     return;
   }
+  if (recover && recoverAutoplay(core, index)) return;
   const track = trackAt(core, index);
   if (!track) return;
+  if (core.autoplayTrackId && core.autoplayTrackId !== track.id) core.autoplayTrackId = null;
   core.seeks.cancel();
   core.accepting = false;
   core.committed = false;

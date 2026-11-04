@@ -51,6 +51,8 @@ export type SessionCore = {
   sdkPlaying: boolean;
   accepting: boolean;
   committed: boolean;
+  /** Track id waiting for an in-gesture SDK resume after `autoplay_failed`. */
+  autoplayTrackId: string | null;
   queueFinished: boolean;
   loadedEpoch: number;
   state: SessionState;

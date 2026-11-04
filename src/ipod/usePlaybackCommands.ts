@@ -71,10 +71,10 @@ export function usePlaybackCommands({
   function playPause() {
     if (overlayRef.current) return;
     primeSpotifyPlayback();
-    pressOnly();
     const current = playerRef.current;
     if (current.hasLoaded || current.loading) {
       current.toggle();
+      pressOnly();
       return;
     }
     const frame = topFrame(stackRef);
@@ -91,14 +91,17 @@ export function usePlaybackCommands({
           settingsRef.current.shuffle === "songs" ? Math.floor(Math.random() * queue.length) : 0;
         current.playQueue(queue, start);
         push("now-playing");
+        pressOnly();
         return;
       }
     }
     if (row?.action === "play") {
       activate();
+      pressOnly();
       return;
     }
     if (current.queue.length > 0) current.toggle();
+    pressOnly();
   }
 
   return { playTrack, playPause };

@@ -88,6 +88,8 @@ export type PlayerTransport = {
   setVolume: (volume: number) => Promise<void> | void;
   getState: () => Promise<DevicePlaybackState | null>;
   supportReason?: () => string | null;
+  /** iOS only. Returns true when `resume()` ran inside the current click. */
+  gestureResume?: () => boolean;
   observeState?: (state: DevicePlaybackState | null) => void;
   disableDeviceShuffle?: () => void;
 };
