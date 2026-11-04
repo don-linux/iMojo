@@ -109,8 +109,11 @@ export function useScreenKeyboard({
         case " ":
           event.preventDefault();
           event.stopPropagation();
-          unlockClick();
-          if (!event.repeat) readActions().select();
+          if (event.repeat) {
+            unlockClick();
+            break;
+          }
+          readActions().select();
           break;
         case "Escape":
           event.preventDefault();

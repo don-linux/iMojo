@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spotifyPlaybackSupport, type SpotifySupportProbe } from "./support.ts";
 
-const DESKTOP = "Spotify playback needs a desktop browser";
 const SECURE = "Spotify playback needs a secure page";
 const DRM = "Spotify playback needs DRM support";
 
@@ -33,13 +32,13 @@ test("rejects a browser without requestMediaKeySystemAccess", () => {
   assert.deepEqual(spotifyPlaybackSupport(probe), { ok: false, reason: DRM });
 });
 
-test("treats client hints mobile as a phone even on a desktop user agent", () => {
+test("allows a secure mobile client hint when DRM is present", () => {
   const probe = desktop();
   probe.navigator = { ...probe.navigator, userAgentData: { mobile: true } };
-  assert.deepEqual(spotifyPlaybackSupport(probe), { ok: false, reason: DESKTOP });
+  assert.deepEqual(spotifyPlaybackSupport(probe), { ok: true });
 });
 
-test("trusts client hints when they say the browser is not mobile", () => {
+test("allows an iPhone user agent when the client hint says it is not mobile", () => {
   const probe = desktop();
   probe.navigator = {
     ...probe.navigator,
@@ -50,22 +49,22 @@ test("trusts client hints when they say the browser is not mobile", () => {
   assert.deepEqual(spotifyPlaybackSupport(probe), { ok: true });
 });
 
-test("treats Android, iPhone, iPad, and iPod user agents as mobile", () => {
+test("allows Android, iPhone, iPad, and iPod user agents", () => {
   for (const token of ["Android", "iPhone", "iPad", "iPod"]) {
     const probe = desktop();
     probe.navigator = { ...probe.navigator, userAgent: `Mozilla/5.0 (${token})`, maxTouchPoints: 1 };
-    assert.deepEqual(spotifyPlaybackSupport(probe), { ok: false, reason: DESKTOP });
+    assert.deepEqual(spotifyPlaybackSupport(probe), { ok: true });
   }
 });
 
-test("treats iPadOS desktop mode as mobile", () => {
+test("allows iPadOS desktop mode", () => {
   const probe = desktop();
   probe.navigator = {
     ...probe.navigator,
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     maxTouchPoints: 5,
   };
-  assert.deepEqual(spotifyPlaybackSupport(probe), { ok: false, reason: DESKTOP });
+  assert.deepEqual(spotifyPlaybackSupport(probe), { ok: true });
 });
 
 test("keeps a desktop Mac with a single touch point", () => {
@@ -74,7 +73,7 @@ test("keeps a desktop Mac with a single touch point", () => {
   assert.deepEqual(spotifyPlaybackSupport(probe), { ok: true });
 });
 
-test("reports the secure-page failure before the mobile failure", () => {
+test("reports the secure-page failure before other navigator checks", () => {
   const probe = desktop();
   probe.isSecureContext = false;
   probe.navigator = { ...probe.navigator, userAgent: "Mozilla/5.0 (iPhone)" };

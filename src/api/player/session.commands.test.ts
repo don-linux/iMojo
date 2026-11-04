@@ -120,6 +120,123 @@ test("sdk account and session errors are shown without dropping the track", asyn
   assert.equal(session.getSnapshot().queue[0]?.id, "a");
 });
 
+function countGestures(fake: ReturnType<typeof fakeTransport>, accept: boolean) {
+  let gestures = 0;
+  fake.transport.gestureResume = () => {
+    gestures += 1;
+    return accept;
+  };
+  return () => gestures;
+}
+
+test("a pause click does not resume in the gesture", async () => {
+  const fake = fakeTransport();
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await session.idle();
+  session.toggle();
+  assert.equal(gestures(), 0);
+  assert.equal(fake.resumes.length, 0);
+  assert.equal(fake.plays.length, 1);
+});
+
+test("iOS recovery after autoplay resumes in the gesture and does not transfer again", async () => {
+  const fake = fakeTransport();
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await session.idle();
+  session.reportSdkError("autoplay", "Press play to start playback");
+  session.toggle();
+  assert.equal(gestures(), 1);
+  assert.equal(fake.plays.length, 1);
+  assert.equal(session.getSnapshot().error, null);
+  assert.equal(session.getSnapshot().playing, true);
+  await session.idle();
+  assert.equal(fake.resumes.length, 1);
+});
+
+test("iOS autoplay before the transfer commits does not send another play", async () => {
+  const fake = fakeTransport();
+  const gate: { release: (() => void) | null } = { release: null };
+  fake.setPlay(() => new Promise((resolve) => {
+    gate.release = () => resolve();
+  }));
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await until(() => fake.plays.length === 1);
+  session.reportSdkError("autoplay", "Press play to start playback");
+  assert.equal(session.getSnapshot().hasLoaded, false);
+  session.toggle();
+  assert.equal(gestures(), 1);
+  assert.equal(fake.plays.length, 1);
+  gate.release?.();
+  await session.idle();
+});
+
+test("desktop autoplay before commit still transfers", async () => {
+  const fake = fakeTransport();
+  const gate: { release: (() => void) | null } = { release: null };
+  fake.setPlay(() => new Promise((resolve) => {
+    gate.release = () => resolve();
+  }));
+  const gestures = countGestures(fake, false);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await until(() => fake.plays.length === 1);
+  session.reportSdkError("autoplay", "Press play to start playback");
+  session.toggle();
+  gate.release?.();
+  await until(() => fake.plays.length === 2);
+  assert.equal(gestures(), 1);
+  gate.release?.();
+  await session.idle();
+  assert.equal(fake.plays.length, 2);
+});
+
+test("a different track still transfers while an iOS autoplay hold is set", async () => {
+  const fake = fakeTransport();
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await session.idle();
+  session.reportSdkError("autoplay", "Press play again");
+  session.playQueue([track("b")], 0);
+  await session.idle();
+  assert.equal(gestures(), 0);
+  assert.equal(fake.plays.length, 2);
+  assert.equal(fake.plays[1]?.uris[0], "spotify:track:b");
+});
+
+test("shuffle still transfers during an iOS autoplay hold", async () => {
+  const fake = fakeTransport();
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a"), track("b")], 0);
+  await session.idle();
+  session.reportSdkError("autoplay", "Press play to start playback");
+  session.setShuffle(true);
+  await session.idle();
+  assert.equal(gestures(), 0);
+  assert.equal(fake.plays.length, 2);
+});
+
+test("playback clears the autoplay hold so the same track can transfer again", async () => {
+  const fake = fakeTransport();
+  const gestures = countGestures(fake, true);
+  const session = createPlayerSession({ transport: fake.transport });
+  session.playQueue([track("a")], 0);
+  await session.idle();
+  session.reportSdkError("autoplay", "Press play to start playback");
+  session.ingest(deviceState("spotify:track:a"));
+  session.playQueue([track("a")], 0);
+  await session.idle();
+  assert.equal(gestures(), 0);
+  assert.equal(fake.plays.length, 2);
+});
+
 test("unavailable tracks use the renamed error copy", async () => {
   const fake = fakeTransport();
   const session = createPlayerSession({ transport: fake.transport });

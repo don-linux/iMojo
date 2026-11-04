@@ -46,6 +46,8 @@ export type SpotifySdkPlayerOptions = {
   readSdk?: () => SpotifySdk | undefined;
   readyTimeoutMs?: number;
   timer?: SdkTimer;
+  /** Defaults to the live browser. Tests pass a user-agent probe through `isIosWebKit`. */
+  isIos?: () => boolean;
 };
 
 export type SdkEventSink = {

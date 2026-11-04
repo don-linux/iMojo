@@ -28,6 +28,7 @@ export function ingest(core: SessionCore, state: DevicePlaybackState | null) {
   }
   core.optimistic = null;
   core.sdkPlaying = result.playing;
+  if (result.playing) core.autoplayTrackId = null;
   const durationMs =
     result.durationMs > 0 ? result.durationMs : (trackAt(core, result.queueIndex)?.durationMs ?? 0);
   core.clock.note({
@@ -80,6 +81,7 @@ export function restartCurrent(core: SessionCore, forcePlay: boolean) {
 
 export function finishQueue(core: SessionCore) {
   if (core.queueFinished || core.state.finished) return;
+  core.autoplayTrackId = null;
   core.queueFinished = true;
   haltLane(core);
   core.order = [];
@@ -97,6 +99,7 @@ export function finishQueue(core: SessionCore) {
 }
 
 export function halt(core: SessionCore, message: string) {
+  core.autoplayTrackId = null;
   haltLane(core);
   assign(core, { error: message, hasLoaded: false, loading: false });
   void core.transport.pause(new AbortController().signal).catch(() => {});
@@ -115,6 +118,7 @@ export function haltLane(core: SessionCore) {
 
 export function fail(core: SessionCore, reason: unknown) {
   if (isAbortError(reason)) return;
+  core.autoplayTrackId = null;
   core.optimistic = null;
   core.sdkPlaying = false;
   core.clock.setPaused(true);

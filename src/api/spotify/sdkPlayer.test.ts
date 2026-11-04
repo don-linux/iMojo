@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
+import { isIosWebKit } from "../../audio/clickPlayer.ts";
 import { SpotifySdkPlayer, type SdkPlayerError } from "./sdkPlayer.ts";
 import type { SdkTimer, SpotifyPlayerOptions, SpotifySdk } from "./sdkTypes.ts";
 
@@ -10,6 +11,8 @@ class FakePlayer {
   disconnected = false;
   activations = 0;
   connects = 0;
+  resumes = 0;
+  volumes = 0;
   options: SpotifyPlayerOptions;
   private listeners = new Map<string, ((event?: unknown) => void)[]>();
   private release: ((ok: boolean) => void) | null = null;
@@ -57,6 +60,7 @@ class FakePlayer {
   }
 
   setVolume() {
+    this.volumes += 1;
     return Promise.resolve();
   }
 
@@ -65,6 +69,7 @@ class FakePlayer {
   }
 
   resume() {
+    this.resumes += 1;
     return Promise.resolve();
   }
 
@@ -95,6 +100,7 @@ function create(extra: {
   getAccessToken?: (options?: { force?: boolean }) => Promise<string>;
   readSdk?: () => SpotifySdk | undefined;
   loadSdk?: () => Promise<void>;
+  isIos?: () => boolean;
 } = {}) {
   const clock = timer();
   const player = new SpotifySdkPlayer({
@@ -102,10 +108,14 @@ function create(extra: {
     readSdk: extra.readSdk,
     loadSdk: extra.loadSdk ?? (async () => {}),
     getAccessToken: extra.getAccessToken ?? (async () => "token"),
+    isIos: extra.isIos,
     timer: clock,
   });
   return { player, clock };
 }
+
+const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)";
+const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";
 
 async function until(ready: () => boolean) {
   for (let attempt = 0; attempt < 20 && !ready(); attempt += 1) await Promise.resolve();
@@ -193,6 +203,31 @@ test("not_ready clears the device id so the next connect reuses the player", asy
   instance?.finish(true);
   assert.equal(await again, "sdk-2");
   assert.equal(FakePlayer.instances.length, 1);
+});
+
+test("resumeInGesture calls resume on an iPhone user agent and not on a Mac", () => {
+  const iphone = create({ isIos: () => isIosWebKit({ userAgent: IPHONE, maxTouchPoints: 5 }) });
+  assert.equal(iphone.player.resumeInGesture(), false);
+  iphone.player.activate();
+  assert.equal(iphone.player.resumeInGesture(), true);
+  assert.equal(FakePlayer.instances[0]?.resumes, 1);
+
+  const mac = create({ isIos: () => isIosWebKit({ userAgent: MAC, maxTouchPoints: 0 }) });
+  mac.player.activate();
+  assert.equal(mac.player.resumeInGesture(), false);
+  assert.equal(FakePlayer.instances[1]?.resumes, 0);
+});
+
+test("setVolume reaches the SDK on desktop and skips it on iOS", () => {
+  const mac = create({ isIos: () => isIosWebKit({ userAgent: MAC, maxTouchPoints: 0 }) });
+  mac.player.activate();
+  mac.player.setVolume(0.4);
+  assert.equal(FakePlayer.instances[0]?.volumes, 1);
+
+  const iphone = create({ isIos: () => isIosWebKit({ userAgent: IPHONE, maxTouchPoints: 5 }) });
+  iphone.player.activate();
+  iphone.player.setVolume(0.2);
+  assert.equal(FakePlayer.instances[1]?.volumes, 0);
 });
 
 test("activateElement runs synchronously when the SDK is already loaded", () => {
